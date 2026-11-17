@@ -1350,3 +1350,21 @@ test('一步推送：接口在，且按当前选项打包（不依赖本地已�
   assert.equal(pushBody.includes('packDir'), false, '推送不该依赖本地包目录')
   assert.match(routes, /以"保存过的选项"为准|readPrefs\(home\)/, '要读保存过的选项')
 })
+
+test('设置页：面板里不许调钩子（那会让整个设置页白屏）', async () => {
+  const { readFileSync } = await import('node:fs')
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+  const start = client.indexOf('function soulBlock(')
+  const end = client.indexOf('function collapsibleSub(')
+  assert.ok(start > 0 && end > start, '要能切出面板函数体')
+  const body = client.slice(start, end)
+
+  // 这是真机上白过两次的根源：普通函数里调 useState/useEffect，
+  // 钩子数量随渲染变化，React 直接把整个 section 挂掉。
+  assert.equal(/useState\(/.test(body), false, '面板里不许用 useState')
+  assert.equal(/useEffect\(/.test(body), false, '面板里不许用 useEffect')
+
+  // 读选项改成普通函数，且只在面板自己的作用域里
+  assert.match(body, /var loadPrefs = function/, '要有个普通函数负责读')
+  assert.equal(body.includes('groups.loadPrefs'), false, '不能在组件作用域里引用它')
+})

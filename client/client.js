@@ -2791,6 +2791,9 @@ window.__ModuleLoader__.load({
      * 都要再点一次才真的发请求。
      */
     function soulBlock(soul, setSoul) {
+      // 展开之前的首屏也能拿到保存值：延迟一拍再读，别在渲染期改状态。
+      setTimeout(loadPrefs, 0);
+
       var patch = function (part) {
         setSoul(function (prev) { return Object.assign({}, prev, part); });
       };
@@ -2868,23 +2871,17 @@ window.__ModuleLoader__.load({
         }, (label || dir) + ' ↗');
       };
 
-      /** 记住选项（不含密码）：改一次存一次，下次打开还是这套。 */
-      var prefsPayload = function () {
-        return {
-          sessions: soul.sessions,
-          attachments: Boolean(soul.attachments),
-          pluginData: Boolean(soul.pluginData),
-          syncDir: soul.syncDir || '',
-        };
-      };
-      var savePrefs = function () {
-        post('/mini-remote/soul/prefs', prefsPayload()).catch(function () { /* 存不上不影响干活 */ });
-      };
-
-      var prefsLoaded = useState(false);
-      useEffect(function () {
-        if (prefsLoaded[0]) return;
-        prefsLoaded[1](true);
+      /**
+       * 读回保存过的选项。
+       *
+       * **不能用 useState / useEffect**：这段代码住在一个普通函数里，不是组件——
+       * 在普通函数里调钩子会让钩子数量随渲染变化，直接把设置页挂成白屏
+       * （2026-11-17 真机就是这么白的）。改成"第一次展开时读一次"。
+       */
+      var soulPrefsLoaded = false;
+      var loadPrefs = function () {
+        if (soulPrefsLoaded) return;
+        soulPrefsLoaded = true;
         getJson('/mini-remote/soul/prefs').then(function (r) {
           var prefs = (r.body && r.body.prefs) || null;
           if (!prefs) return;
@@ -2897,7 +2894,20 @@ window.__ModuleLoader__.load({
             return next;
           });
         }).catch(function () { /* 读不到就用默认 */ });
-      }, []);
+      };
+
+      /** 记住选项（不含密码）：改一次存一次，下次打开还是这套。 */
+      var prefsPayload = function () {
+        return {
+          sessions: soul.sessions,
+          attachments: Boolean(soul.attachments),
+          pluginData: Boolean(soul.pluginData),
+          syncDir: soul.syncDir || '',
+        };
+      };
+      var savePrefs = function () {
+        post('/mini-remote/soul/prefs', prefsPayload()).catch(function () { /* 存不上不影响干活 */ });
+      };
 
       var getJson = function (path) {
         return fetch(path).then(function (res) {
