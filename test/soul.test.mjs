@@ -815,3 +815,12 @@ test('设置页：五条接口都在，写入的两条各自要求 confirm', asy
   const host = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
   assert.match(host, /registerSoulRoutes/, '插件要把路由挂上')
 })
+
+test('设置页：移魂这一组的 children 必须传数组，否则整组被静默丢掉', async () => {
+  const { readFileSync } = await import('node:fs')
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+  // settingsGroup 开头是 `if (!children.length) return null`：单个元素没有 length，
+  // 传错了不会报错，只会"什么都没显示"——这条测试专门钉住它。
+  assert.match(client, /settingsGroup\('soul', '移魂', groups\.soulOpen, groups\.toggleSoul,\s*\[soulBlock\(/, '要传数组')
+  assert.match(client, /if \(!children\.length\) return null/, '前提没变')
+})
