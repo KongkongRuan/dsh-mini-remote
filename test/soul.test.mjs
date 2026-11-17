@@ -1432,7 +1432,8 @@ test('设置页：选项要能存住，而且存的是"这次改完的值"', asy
 
   // 失败必须说出来，不能静默
   assert.match(client, /选项没记住：/, '存不上要显示原因')
-  assert.match(client, /记住这些选项/, '要有个明确的保存按钮')
+  assert.match(client, /'保存中…' : '保存'/, '按钮就叫保存')
+  assert.match(client, /statusPill\('已保存', 'connected'\)/, '点完要有可见反馈')
 })
 
 

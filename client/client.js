@@ -3353,11 +3353,15 @@ window.__ModuleLoader__.load({
             disabled: Boolean(soul.busy) || soul.prefsStatus === 'saving',
             onClick: function () { savePrefs(); },
             style: styles.btn,
-          }, soul.prefsStatus === 'saving' ? '正在记住…' : '记住这些选项'),
+          }, soul.prefsStatus === 'saving' ? '保存中…' : '保存'),
+          // 用这一页本来就有的状态标签：绿色=成了、黄=进行中、红=失败。
+          soul.prefsStatus === 'saved' ? statusPill('已保存', 'connected') : null,
+          soul.prefsStatus === 'saving' ? statusPill('保存中', 'pending') : null,
+          soul.prefsStatus === 'failed' ? statusPill('保存失败', 'error') : null,
           h('div', { style: styles.muted },
             soul.prefsStatus === 'saved'
-              ? '已记住：下次打开还是这套（密码不保存）。'
-              : (soul.prefsStatus === 'failed' ? '没记住，原因见下方红字。' : '选项会自动记住，这个按钮只是再确认一次。')),
+              ? '下次打开还是这套（密码不保存）。'
+              : '改任何一项都会自动保存；想立刻确认就点「保存」。'),
         ),
         h('div', { style: styles.muted }, '会话只有两端 DSH 版本一致时才会真正搬过去；版本不同会被跳过并说明。'),
         h('div', { style: { marginTop: 10 } },
