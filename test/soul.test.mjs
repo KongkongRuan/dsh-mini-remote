@@ -295,3 +295,135 @@ test('移魂技能：随包分发、有 frontmatter、并写进打包白名单',
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
   assert.ok(pkg.files.includes('SKILL-soul.md'), 'SKILL-soul.md 要在 files 白名单里，否则装完读不到')
 })
+
+/** 带安装能力的假 ctx：记录装/卸调用，模拟官方的 already-installed 语义。 */
+function fakeCtxWithInstall({ bundles = [], versions = {} } = {}) {
+  const state = {
+    bundles: bundles.map((b) => ({ ...b, version: versions[b.name] ?? b.version ?? '1.0.0' })),
+    installs: [],
+    removes: [],
+  }
+  const services = {
+    pluginManager: {
+      listBundles: async () => state.bundles,
+      setBundleEnabled: async (name, enabled) => {
+        const item = state.bundles.find((b) => b.name === name)
+        if (item) item.enabled = enabled
+        return { changed: true, application: 'applied' }
+      },
+      installBundle: async (spec) => {
+        state.installs.push(spec)
+        const name = spec.includes('@') ? spec.slice(0, spec.lastIndexOf('@')) : spec
+        if (state.bundles.some((b) => b.name === name)) {
+          return { application: 'failed', error: { code: 'already-installed' } }
+        }
+        state.bundles.push({ name, installed: true, enabled: true, version: '9.9.9' })
+        return { application: 'applied' }
+      },
+      removeBundle: async (name) => {
+        state.removes.push(name)
+        state.bundles = state.bundles.filter((b) => b.name !== name)
+        return { application: 'applied' }
+      },
+      listVersionExemptions: async () => ({ runtimeVersion: '0.2.2-rc.3', exemptions: {}, warnings: [] }),
+    },
+    settings: {
+      describeAll: async () => [],
+      replace: async () => undefined,
+    },
+  }
+  return { ctx: { get: (n) => services[n] }, state }
+}
+
+async function packWithBundles(root, bundles) {
+  const pack = join(root, 'pack')
+  await makePack(pack, { bundles, namespaces: {} })
+  return pack
+}
+
+test('P2：目标机没装 → 计划里是 install，执行时真的去装', async () => {
+  await withTemp(async (root) => {
+    const home = join(root, 'home')
+    await mkdir(join(home, 'profiles', 'web'), { recursive: true })
+    await writeFile(join(home, 'profiles', 'web', 'package.json'), '{}', 'utf8')
+    const pack = await packWithBundles(root, [
+      { name: 'pkg-a', installed: true, enabled: true, version: '1.2.3', spec: 'pkg-a@1.2.3' },
+    ])
+
+    const { ctx, state } = fakeCtxWithInstall({ bundles: [] })
+    const plan = await planSoul({ packDir: pack, ctx, home, profile: 'web' })
+    const item = plan.plan.items.find((i) => i.target === 'pkg-a')
+    assert.equal(item.action, 'install')
+    assert.equal(item.spec, 'pkg-a@1.2.3')
+    assert.equal(plan.summary.install, 1)
+
+    const applied = await applySoul({ packDir: pack, ctx, home, profile: 'web', planId: plan.planId, confirm: true })
+    assert.equal(applied.ok, true, JSON.stringify(applied.notes))
+    assert.deepEqual(state.installs, ['pkg-a@1.2.3'], '要按记录的 spec 去装')
+  })
+})
+
+test('P2：版本不同 → 先卸再装', async () => {
+  await withTemp(async (root) => {
+    const home = join(root, 'home')
+    await mkdir(join(home, 'profiles', 'web'), { recursive: true })
+    await writeFile(join(home, 'profiles', 'web', 'package.json'), '{}', 'utf8')
+    const pack = await packWithBundles(root, [
+      { name: 'pkg-b', installed: true, enabled: true, version: '2.0.0', spec: 'pkg-b@2.0.0' },
+    ])
+    const { ctx, state } = fakeCtxWithInstall({
+      bundles: [{ name: 'pkg-b', installed: true, enabled: true }],
+      versions: { 'pkg-b': '1.0.0' },
+    })
+    const plan = await planSoul({ packDir: pack, ctx, home, profile: 'web' })
+    const item = plan.plan.items.find((i) => i.target === 'pkg-b')
+    assert.equal(item.action, 'reinstall', '版本不同要走先卸再装')
+
+    const applied = await applySoul({ packDir: pack, ctx, home, profile: 'web', planId: plan.planId, confirm: true })
+    assert.equal(applied.ok, true, JSON.stringify(applied.notes))
+    assert.deepEqual(state.removes, ['pkg-b'])
+    assert.deepEqual(state.installs, ['pkg-b@2.0.0'])
+  })
+})
+
+test('P2：回滚会把本次新装的包卸掉', async () => {
+  await withTemp(async (root) => {
+    const home = join(root, 'home')
+    await mkdir(join(home, 'profiles', 'web'), { recursive: true })
+    await writeFile(join(home, 'profiles', 'web', 'package.json'), '{}', 'utf8')
+    const pack = await packWithBundles(root, [
+      { name: 'pkg-c', installed: true, enabled: true, version: '3.0.0', spec: 'pkg-c@3.0.0' },
+    ])
+    const { ctx, state } = fakeCtxWithInstall({ bundles: [] })
+    const plan = await planSoul({ packDir: pack, ctx, home, profile: 'web' })
+    const applied = await applySoul({ packDir: pack, ctx, home, profile: 'web', planId: plan.planId, confirm: true })
+    assert.equal(applied.ok, true)
+
+    const back = await rollbackSoul({ ctx, snapshotDir: applied.snapshotDir })
+    assert.equal(back.ok, true, JSON.stringify(back.failed))
+    assert.deepEqual(state.removes, ['pkg-c'])
+  })
+})
+
+test('P2：already-installed 不算失败', async () => {
+  await withTemp(async (root) => {
+    const home = join(root, 'home')
+    await mkdir(join(home, 'profiles', 'web'), { recursive: true })
+    await writeFile(join(home, 'profiles', 'web', 'package.json'), '{}', 'utf8')
+    const pack = await packWithBundles(root, [
+      { name: 'pkg-d', installed: true, enabled: true, version: '1.0.0', spec: 'pkg-d@1.0.0' },
+    ])
+    // 目标机的 listBundles 说没装，但 installBundle 回 already-installed —— 真实世界会这样。
+    const { ctx } = fakeCtxWithInstall({
+      bundles: [{ name: 'pkg-d', installed: true, enabled: true }],
+      versions: { 'pkg-d': '1.0.0' },
+    })
+    // 让它被当成"没装"：把 installed 改成 false，但保留在列表里
+    ctx.get('pluginManager').listBundles = async () => [{ name: 'pkg-d', installed: false, enabled: true, version: '1.0.0' }]
+    const plan = await planSoul({ packDir: pack, ctx, home, profile: 'web' })
+    const applied = await applySoul({ packDir: pack, ctx, home, profile: 'web', planId: plan.planId, confirm: true })
+    assert.equal(applied.ok, true, JSON.stringify(applied.notes))
+    const entry = applied.journal.find((j) => j.target === 'pkg-d')
+    assert.equal(entry.result, 'skipped', 'already-installed 应记成跳过而不是失败')
+  })
+})
