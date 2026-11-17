@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -425,5 +425,161 @@ test('P2：already-installed 不算失败', async () => {
     assert.equal(applied.ok, true, JSON.stringify(applied.notes))
     const entry = applied.journal.find((j) => j.target === 'pkg-d')
     assert.equal(entry.result, 'skipped', 'already-installed 应记成跳过而不是失败')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 本地源插件（link:/file:/裸路径）的打包与安装
+// ---------------------------------------------------------------------------
+
+test('本地源识别：link:/file:/裸路径算本地，name@version 不算', async () => {
+  const { isLocalSpec } = await import('../lib/soul/local-plugin.js')
+  assert.equal(isLocalSpec('link:../my-plugin'), true)
+  assert.equal(isLocalSpec('file:./pack.tgz'), true)
+  assert.equal(isLocalSpec('I:/极简遥控器/极简遥控器'), true)
+  assert.equal(isLocalSpec('./local'), true)
+  assert.equal(isLocalSpec('dsh-mini-remote@0.3.0'), false, '注册表 spec 不该当成本地')
+  assert.equal(isLocalSpec('@scope/name'), false)
+})
+
+test('本地插件：导出时打成 tarball 进包，bundles.json 记下可用的相对路径', async () => {
+  await withTemp(async (root) => {
+    const home = join(root, 'home')
+    await mkdir(join(home, 'profiles', 'web'), { recursive: true })
+    await writeFile(
+      join(home, 'profiles', 'web', 'package.json'),
+      JSON.stringify({ dsh: { profile: { bundles: ['my-local-plugin'] } } }),
+      'utf8',
+    )
+    const pluginDir = join(root, 'my-local-plugin')
+    await mkdir(pluginDir, { recursive: true })
+    await writeFile(join(pluginDir, 'package.json'), JSON.stringify({ name: 'my-local-plugin', version: '1.0.0' }), 'utf8')
+
+    const pack = join(root, 'pack')
+    // 假 ctx：只有 pluginManager 报告这个包，来源是 link: 指向本地目录。
+    const ctx = {
+      get: (name) =>
+        name === 'pluginManager'
+          ? {
+              listBundles: async () => [
+                { name: 'my-local-plugin', installed: true, enabled: true, version: '1.0.0', installTarget: { spec: `link:${pluginDir}` } },
+              ],
+              listVersionExemptions: async () => ({ runtimeVersion: '0.2.2-rc.3' }),
+            }
+          : undefined,
+    }
+    // 注入假 npm pack：真的不应该在单测里跑包管理器。
+    const fakeRunPack = async ({ outDir }) => {
+      const produced = join(outDir, 'my-local-plugin-1.0.0.tgz')
+      await writeFile(produced, 'fake-tarball-bytes', 'utf8')
+      return produced
+    }
+    const { exportSoul } = await import('../lib/soul/export.js')
+    const result = await exportSoul({ ctx, home, profile: 'web', outDir: pack, runPack: fakeRunPack })
+    assert.equal(result.ok, true)
+    assert.equal(result.localPlugins, 1)
+
+    const bundles = JSON.parse(await readFile(join(pack, 'profile/bundles.json'), 'utf8'))
+    const entry = bundles.bundles.find((b) => b.name === 'my-local-plugin')
+    assert.equal(entry.specKind, 'local')
+    assert.equal(entry.localTarball, 'plugins/local/my-local-plugin.tgz')
+    // tarball 真的在包里，而且被算进校验和。
+    const verify = await verifyPack(pack)
+    assert.equal(verify.ok, true, verify.problems.join('；'))
+    assert.ok(Object.keys(JSON.parse(await readFile(join(pack, 'integrity/checksums.json'), 'utf8')).files).includes('plugins/local/my-local-plugin.tgz'))
+  })
+})
+
+test('本地插件：打包失败要如实记 note，不能假装带上了', async () => {
+  await withTemp(async (root) => {
+    const home = join(root, 'home')
+    await mkdir(join(home, 'profiles', 'web'), { recursive: true })
+    await writeFile(
+      join(home, 'profiles', 'web', 'package.json'),
+      JSON.stringify({ dsh: { profile: { bundles: ['gone'] } } }),
+      'utf8',
+    )
+    const ctx = {
+      get: (name) =>
+        name === 'pluginManager'
+          ? {
+              listBundles: async () => [
+                { name: 'gone', installed: true, enabled: true, version: '1.0.0', installTarget: { spec: 'link:Z:/does-not-exist' } },
+              ],
+              listVersionExemptions: async () => ({ runtimeVersion: '0.2.2-rc.3' }),
+            }
+          : undefined,
+    }
+    const pack = join(root, 'pack')
+    const { exportSoul } = await import('../lib/soul/export.js')
+    const result = await exportSoul({ ctx, home, profile: 'web', outDir: pack })
+    assert.equal(result.ok, true)
+    assert.equal(result.localPlugins, 0)
+    assert.ok(result.notes.some((n) => n.includes('gone') && n.includes('没打包')), result.notes.join('；'))
+  })
+})
+
+test('本地插件：导入时 tarball 落到本机，装的是 file: 绝对路径', async () => {
+  await withTemp(async (root) => {
+    const home = join(root, 'home')
+    await mkdir(join(home, 'profiles', 'web'), { recursive: true })
+    await writeFile(join(home, 'profiles', 'web', 'package.json'), '{}', 'utf8')
+
+    const pack = join(root, 'pack')
+    await makePack(pack, {
+      bundles: [
+        {
+          name: 'local-thing',
+          installed: true,
+          enabled: true,
+          version: '1.0.0',
+          spec: 'link:Z:/nowhere',
+          specKind: 'local',
+          localTarball: 'plugins/local/local-thing.tgz',
+        },
+      ],
+      namespaces: {},
+    })
+    await mkdir(join(pack, 'plugins/local'), { recursive: true })
+    await writeFile(join(pack, 'plugins/local/local-thing.tgz'), 'bytes', 'utf8')
+    // 重新收尾，让新加的 tarball 进校验和。
+    const { finalizePack } = await import('../lib/soul/pack.js')
+    await finalizePack(pack, { kind: 'soul-export', source: { profile: 'web', dshVersion: '0.2.2-rc.3' }, includes: {}, counts: {} })
+
+    const { ctx, state } = fakeCtxWithInstall({ bundles: [] })
+    const plan = await planSoul({ packDir: pack, ctx, home, profile: 'web' })
+    const item = plan.plan.items.find((i) => i.target === 'local-thing')
+    assert.equal(item.action, 'install')
+    assert.equal(item.localTarball, 'plugins/local/local-thing.tgz')
+
+    const applied = await applySoul({ packDir: pack, ctx, home, profile: 'web', planId: plan.planId, confirm: true })
+    assert.equal(applied.ok, true, JSON.stringify(applied.notes))
+    assert.equal(state.installs.length, 1)
+    assert.match(state.installs[0], /^file:.*souls\/imported\/local-thing\/local-thing\.tgz$/, state.installs[0])
+  })
+})
+
+test('本地插件：真跑一次 npm pack（没有包管理器就跳过）', async (t) => {
+  await withTemp(async (root) => {
+    const dir = join(root, 'fixture')
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'fixture-plugin', version: '0.1.0', main: 'index.js' }), 'utf8')
+    await writeFile(join(dir, 'index.js'), 'export const x = 1\n', 'utf8')
+
+    const { packLocalPlugin } = await import('../lib/soul/local-plugin.js')
+    const result = await packLocalPlugin({
+      name: 'fixture-plugin',
+      spec: `link:${dir}`,
+      home: root,
+      outRoot: join(root, 'pack'),
+    })
+    if (!result.ok) {
+      // 机器上没有 npm/pnpm 时如实跳过，而不是把测试变红。
+      t.skip(`这台机器打不了包：${result.reason}`)
+      return
+    }
+    assert.equal(result.rel, 'plugins/local/fixture-plugin.tgz')
+    const info = await stat(join(root, 'pack', result.rel))
+    assert.ok(info.size > 0, 'tarball 不能是空文件')
   })
 })
