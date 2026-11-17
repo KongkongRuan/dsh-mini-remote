@@ -4399,10 +4399,13 @@ test('自检：该回答的那几样一样不缺（版本 / 进程 / 接口 / �
     '/mini-remote/b-relay',
     '/mini-remote/multi-relay',
     '/mini-remote/tailnet-key',
+    // 移魂（2026-11-17）：设置页面板那一侧的五条
+    '/mini-remote/soul/export', '/mini-remote/soul/inspect', '/mini-remote/soul/plan',
+    '/mini-remote/soul/apply', '/mini-remote/soul/rollback',
   ]) {
     assert.ok(paths.includes(want), `清单里少了 ${want}`)
   }
-  assert.equal(body.routes.length, 39, '三十九条注册就报三十九条（清单和注册同一处发生）')
+  assert.equal(body.routes.length, 44, '四十四条注册就报四十四条（清单和注册同一处发生）')
   assert.ok(body.routes.every((one) => one.mounted === true), '刚起来的这一份，条条都该是"在"')
 
   // ④ 开关：默认关
@@ -4512,6 +4515,16 @@ function clonePlugin() {
   for (const f of readdirSync(join(ROOT, 'lib'))) {
     if (!f.endsWith('.js') && !f.endsWith('.html')) continue
     writeFileSync(join(dir, 'lib', f), readFileSync(join(ROOT, 'lib', f)))
+  }
+  // lib/soul/ 是子目录，上面那层只拷平铺文件，得单独带上——
+  // 不然克隆出来的插件会在静态 import 那一步就起不来（2026-11-17 实测）。
+  const soulDir = join(ROOT, 'lib', 'soul')
+  if (existsSync(soulDir)) {
+    mkdirSync(join(dir, 'lib', 'soul'), { recursive: true })
+    for (const f of readdirSync(soulDir)) {
+      if (!f.endsWith('.js')) continue
+      writeFileSync(join(dir, 'lib', 'soul', f), readFileSync(join(soulDir, f)))
+    }
   }
   writeFileSync(join(dir, 'package.json'), readFileSync(join(ROOT, 'package.json')))
   writeFileSync(join(dir, 'client', 'client.js'), readFileSync(join(ROOT, 'client', 'client.js')))

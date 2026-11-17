@@ -599,6 +599,24 @@ window.__ModuleLoader__.load({
       var setGuideOpen = guideState[1];
       // 页面分组的展开状态：**全部默认收起**，只有顶部链接与二维码常显。
       // 只留在本次设置页会话里，不持久化，也不做异常自动展开。
+      //
+      // 移魂（2026-11-17）：这一组自己的状态都留在这里。**默认收起**，和别的组一致；
+      // 导入过程要连点四五步，所以中间结果（体检、计划）都放在状态里，而不是靠弹窗。
+      var soulGroupState = useState(false);
+      var soulGroupOpen = soulGroupState[0];
+      var setSoulGroupOpen = soulGroupState[1];
+      var soulState = useState({
+        packDir: '',
+        sessions: 'none',
+        attachments: false,
+        busy: '',
+        stage: null,
+        error: null,
+        confirmApply: false,
+        confirmRollback: false,
+      });
+      var soul = soulState[0];
+      var setSoul = soulState[1];
       var externalGroupState = useState(false);
       var externalGroupOpen = externalGroupState[0];
       var setExternalGroupOpen = externalGroupState[1];
@@ -2546,6 +2564,10 @@ window.__ModuleLoader__.load({
           toggleFeishu: function () { setFeishuGroupOpen(function (v) { return !v; }); },
           diagnosticsOpen: diagnosticsGroupOpen,
           toggleDiagnostics: function () { setDiagnosticsGroupOpen(function (v) { return !v; }); },
+          soulOpen: soulGroupOpen,
+          toggleSoul: function () { setSoulGroupOpen(function (v) { return !v; }); },
+          soul: soul,
+          setSoul: setSoul,
         }, {
           draft: relayDraft,
           info: relayInfo,
@@ -2739,9 +2761,260 @@ window.__ModuleLoader__.load({
           '作为 A 端配对、作为 B 端执行，以及 B 项目文件。'),
         settingsGroup('feishu', '通知与集成', groups.feishuOpen, groups.toggleFeishu, feishuGroup,
           '飞书长连接、应用凭据与来源名单。'),
+        // 移魂排在诊断之前：它是给人用的功能，不是排障。默认收起，和别的组一致。
+        settingsGroup('soul', '移魂', groups.soulOpen, groups.toggleSoul,
+          soulBlock(groups.soul, groups.setSoul),
+          '把一台电脑上的 DSH 打包搬到另一台：插件组合、配置、会话与附件。'),
         settingsGroup('diagnostics', '诊断与高级', groups.diagnosticsOpen, groups.toggleDiagnostics, diagnostics,
           '版本、进程、接口、服务与最近错误。'),
       ]);
+    }
+
+    /**
+     * 移魂面板（2026-11-17）。
+     *
+     * 它把命令行那一套五步搬到界面上：导出 → 体检 → 计划 → 执行 → 回滚。
+     * **中间结果都留在页面上**，不用弹窗——用户要能对照"计划说会装 3 个包"和
+     * "实际装了 3 个包"，弹一下就没了的东西对照不了。
+     *
+     * 三步只读（体检、计划）与两步写入（执行、回滚）在按钮文案上就分开：写入的两个
+     * 都要再点一次才真的发请求。
+     */
+    function soulBlock(soul, setSoul) {
+      var patch = function (part) {
+        setSoul(function (prev) { return Object.assign({}, prev, part); });
+      };
+      var post = function (path, body) {
+        return fetch(path, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body || {}),
+        }).then(function (res) {
+          return res.json().then(
+            function (b) { return { status: res.status, body: b }; },
+            function () { return { status: res.status, body: null }; },
+          );
+        });
+      };
+      var run = function (label, path, body) {
+        patch({ busy: label, error: null });
+        return post(path, body)
+          .then(function (r) {
+            patch({ busy: '' });
+            if (!r.body || r.body.ok === false) {
+              patch({ error: (r.body && (r.body.error || r.body.verdict)) || ('请求失败（HTTP ' + r.status + '）') });
+              return null;
+            }
+            return r.body;
+          })
+          .catch(function (err) {
+            patch({ busy: '', error: (err && err.message) || String(err) });
+            return null;
+          });
+      };
+
+      var pathMapOf = function () {
+        var rows = [];
+        for (var i = 1; i <= 3; i += 1) {
+          var from = (soul['from' + i] || '').trim();
+          var to = (soul['to' + i] || '').trim();
+          if (from && to) rows.push({ oldPrefix: from, newPrefix: to });
+        }
+        return rows;
+      };
+
+      var doExport = function () {
+        run('导出中', '/mini-remote/soul/export', {
+          sessions: soul.sessions,
+          sessionLimit: 20,
+          attachments: soul.attachments,
+        }).then(function (body) {
+          if (body) patch({ stage: { kind: 'export', body: body }, error: null });
+        });
+      };
+      var doInspect = function () {
+        run('体检中', '/mini-remote/soul/inspect', { packDir: soul.packDir }).then(function (body) {
+          if (body) patch({ stage: { kind: 'inspect', body: body }, plan: null, error: null });
+        });
+      };
+      var doPlan = function () {
+        run('生成计划', '/mini-remote/soul/plan', { packDir: soul.packDir, pathMap: pathMapOf() }).then(function (body) {
+          if (body) patch({ stage: { kind: 'plan', body: body }, error: null, confirmApply: false });
+        });
+      };
+      var doApply = function () {
+        var planId = soul.stage && soul.stage.kind === 'plan' ? soul.stage.body.planId : '';
+        run('执行中', '/mini-remote/soul/apply', {
+          packDir: soul.packDir,
+          planId: planId,
+          confirm: true,
+          pathMap: pathMapOf(),
+        }).then(function (body) {
+          if (body) patch({ stage: { kind: 'apply', body: body }, confirmApply: false, error: body.ok === false ? (body.error || '有项失败') : null });
+        });
+      };
+      var doRollback = function () {
+        var dir = soul.stage && soul.stage.kind === 'apply' ? soul.stage.body.snapshotDir : '';
+        run('回滚中', '/mini-remote/soul/rollback', { snapshotDir: dir }).then(function (body) {
+          if (body) patch({ stage: { kind: 'rollback', body: body }, confirmRollback: false });
+        });
+      };
+
+      var modeButton = function (value, text) {
+        var on = soul.sessions === value;
+        return h('button', {
+          type: 'button',
+          onClick: function () { patch({ sessions: value }); },
+          style: on ? Object.assign({}, styles.btn, { fontWeight: 600 }) : styles.btn,
+        }, on ? '● ' + text : '○ ' + text);
+      };
+
+      var rows = [];
+
+      // ── 导出 ──
+      rows.push(h('div', { key: 'soul-export', style: styles.block },
+        h('div', { style: styles.entryTitle }, '导出这台电脑的灵魂'),
+        h('div', { style: styles.muted }, '带走：插件组合与版本、各插件生效配置、两层补丁、AGENTS.md、技能、预设。插件本身按记录重装；本地源插件打成包一起走。'),
+        h('div', { style: { marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' } },
+          modeButton('none', '不带会话'),
+          modeButton('recent', '最近 20 个会话'),
+          modeButton('all', '全部会话'),
+        ),
+        h('label', { style: styles.toggleRow },
+          h('input', {
+            type: 'checkbox',
+            checked: Boolean(soul.attachments),
+            onChange: function (e) { patch({ attachments: e.target.checked }); },
+          }),
+          '连附件一起带（图片等，可能几百 MB）',
+        ),
+        h('div', { style: styles.muted }, '会话只有两端 DSH 版本一致时才会真正搬过去；版本不同会被跳过并说明。凭据（API Key 等）永远不搬。'),
+        h('div', { style: { marginTop: 10 } },
+          h('button', {
+            type: 'button',
+            disabled: Boolean(soul.busy),
+            onClick: doExport,
+            style: styles.btn,
+          }, soul.busy === '导出中' ? '导出中…' : '开始导出'),
+        ),
+      ));
+
+      // ── 导入 ──
+      rows.push(h('div', { key: 'soul-import', style: styles.block },
+        h('div', { style: styles.entryTitle }, '把一份灵魂包注入到这台电脑'),
+        h('div', { style: styles.muted }, '先体检，再生成计划；执行前会再确认一次。所有写入都会先做快照，能整笔退回去。'),
+        h('div', { style: { marginTop: 8 } },
+          h('input', {
+            value: soul.packDir || '',
+            placeholder: '灵魂包目录，例如 D:\\soul-20261117',
+            onChange: function (e) { patch({ packDir: e.target.value }); },
+            style: styles.input,
+          }),
+        ),
+        h('div', { style: { marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' } },
+          h('button', { type: 'button', disabled: Boolean(soul.busy) || !soul.packDir, onClick: doInspect, style: styles.btn }, '体检（只读）'),
+          h('button', { type: 'button', disabled: Boolean(soul.busy) || !soul.packDir, onClick: doPlan, style: styles.btn }, '生成计划（只读）'),
+        ),
+        // 路径映射：只在会话 cwd 需要换盘符/换目录时用。
+        h('div', { style: styles.muted }, '路径映射（可选）：旧目录 → 新目录。只用在工作区与会话的 cwd 上，正文里提到的旧路径不会改。'),
+        [1, 2, 3].map(function (i) {
+          return h('div', { key: 'map' + i, style: { display: 'flex', gap: 6, marginTop: 6 } },
+            h('input', {
+              value: soul['from' + i] || '',
+              placeholder: '旧前缀，例如 I:\\项目',
+              onChange: function (e) { var part = {}; part['from' + i] = e.target.value; patch(part); },
+              style: styles.input,
+            }),
+            h('input', {
+              value: soul['to' + i] || '',
+              placeholder: '新前缀，例如 D:\\work',
+              onChange: function (e) { var part = {}; part['to' + i] = e.target.value; patch(part); },
+              style: styles.input,
+            }),
+          );
+        }),
+      ));
+
+      // ── 结果区 ──
+      var stage = soul.stage;
+      var stageRows = [];
+      if (stage && stage.kind === 'export') {
+        var b = stage.body;
+        stageRows.push(h('div', { key: 'r-export', style: styles.block },
+          h('div', { style: styles.entryTitle }, '导出完成'),
+          h('div', { style: styles.muted }, '目录：' + (b.outDir || '') + '，' + (b.fileCount || 0) + ' 个文件，约 ' + Math.round((b.bytes || 0) / 1024) + ' KB'),
+          h('div', { style: styles.muted }, '插件 ' + (b.bundles || 0) + ' 个；配置条目 ' + (b.settingsNamespaces || 0) + ' 条；会话 ' + (b.sessions || 0) + ' 个；附件 ' + (b.attachments || 0) + ' 个。'),
+          (b.notes && b.notes.length)
+            ? h('div', { style: styles.detail }, '要注意：\n' + b.notes.join('\n'))
+            : null,
+        ));
+      }
+      if (stage && stage.kind === 'inspect') {
+        var ins = stage.body;
+        stageRows.push(h('div', { key: 'r-inspect', style: styles.block },
+          h('div', { style: styles.entryTitle }, '体检结果'),
+          h('div', { style: styles.warn }, ins.verdict || ''),
+          h('div', { style: styles.muted }, '校验和：' + (ins.integrity && ins.integrity.ok ? '通过' : '没通过——不要执行')),
+          h('div', { style: styles.muted }, '包里有：插件 ' + (ins.content.bundles || 0) + ' 个、配置 ' + (ins.content.settingsNamespaces || 0) + ' 条、会话 ' + (ins.content.sessions || 0) + ' 个、附件 ' + (ins.content.attachments || 0) + ' 个。'),
+          (ins.target && ins.target.missingBundles && ins.target.missingBundles.length)
+            ? h('div', { style: styles.detail }, '目标机缺这些插件（执行时会自动安装）：' + ins.target.missingBundles.slice(0, 8).join('、') + (ins.target.missingBundles.length > 8 ? ' 等' : ''))
+            : null,
+        ));
+      }
+      if (stage && stage.kind === 'plan') {
+        var pl = stage.body;
+        stageRows.push(h('div', { key: 'r-plan', style: styles.block },
+          h('div', { style: styles.entryTitle }, '计划：会做这些事'),
+          h('div', { style: styles.muted }, '装包 ' + (pl.summary.install || 0) + '、换版本 ' + (pl.summary.reinstall || 0) + '、启用 ' + (pl.summary.enable || 0) + '、改配置 ' + (pl.summary.replace || 0) + '、新建 ' + (pl.summary.create || 0) + '、跳过 ' + (pl.summary.skip || 0) + '。'),
+          (pl.items && pl.items.length)
+            ? h('div', { style: styles.detail }, pl.items.slice(0, 20).map(function (one) {
+                return '· [' + one.action + '] ' + (one.what || '') + ' — ' + (one.detail || '');
+              }).join('\n'))
+            : null,
+          soul.confirmApply
+            ? h('div', { style: { marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' } },
+                h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doApply, style: styles.btn }, soul.busy === '执行中' ? '执行中…' : '确认执行'),
+                h('button', { type: 'button', onClick: function () { patch({ confirmApply: false }); }, style: styles.btn }, '取消'),
+              )
+            : h('div', { style: { marginTop: 10 } },
+                h('button', { type: 'button', onClick: function () { patch({ confirmApply: true }); }, style: styles.btn }, '执行注入…'),
+              ),
+          h('div', { style: styles.muted }, '执行会改配置、装插件、替换补丁与文件。执行前会自动快照。'),
+        ));
+      }
+      if (stage && stage.kind === 'apply') {
+        var ap = stage.body;
+        stageRows.push(h('div', { key: 'r-apply', style: styles.block },
+          h('div', { style: styles.entryTitle }, ap.ok ? '注入完成' : '注入有问题'),
+          ap.failed ? h('div', { style: styles.error }, '有 ' + ap.failed + ' 项失败。') : null,
+          ap.snapshotDir ? h('div', { style: styles.muted }, '快照：' + ap.snapshotDir) : null,
+          (ap.notes && ap.notes.length) ? h('div', { style: styles.detail }, ap.notes.join('\n')) : null,
+          soul.confirmRollback
+            ? h('div', { style: { marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' } },
+                h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doRollback, style: styles.btn }, soul.busy === '回滚中' ? '回滚中…' : '确认回滚'),
+                h('button', { type: 'button', onClick: function () { patch({ confirmRollback: false }); }, style: styles.btn }, '取消'),
+              )
+            : h('div', { style: { marginTop: 10 } },
+                h('button', { type: 'button', disabled: !ap.snapshotDir, onClick: function () { patch({ confirmRollback: true }); }, style: styles.btn }, '回滚这次注入…'),
+              ),
+        ));
+      }
+      if (stage && stage.kind === 'rollback') {
+        var rb = stage.body;
+        stageRows.push(h('div', { key: 'r-rollback', style: styles.block },
+          h('div', { style: styles.entryTitle }, rb.ok ? '已回滚' : '回滚部分失败'),
+          (rb.restored && rb.restored.length) ? h('div', { style: styles.muted }, '退回 ' + rb.restored.length + ' 项。') : null,
+          (rb.failed && rb.failed.length) ? h('div', { style: styles.error }, rb.failed.join('\n')) : null,
+        ));
+      }
+
+      if (stageRows.length) rows.push(h('div', { key: 'soul-results', style: styles.group }, stageRows));
+
+      return h('div', null,
+        soul.error ? h('div', { style: styles.error }, soul.error) : null,
+        soul.busy ? h('div', { style: styles.loading }, soul.busy + '…') : null,
+        rows,
+      );
     }
 
     /** 大类内部的小分类：默认收起，标题旁只留展开/收起。 */

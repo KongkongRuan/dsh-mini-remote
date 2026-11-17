@@ -790,3 +790,28 @@ test('P3：附件按内容寻址补齐，已有的不重写；回滚只删新增
     assert.equal(existsSync(join(home, 'attachments/v1/objects/aa/hash1')), true, '原有的不能动')
   })
 })
+
+test('设置页：移魂面板存在、默认收起、写入动作要二次确认', async () => {
+  const { readFileSync } = await import('node:fs')
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+  assert.match(client, /function soulBlock\(/, '要有面板渲染函数')
+  assert.match(client, /settingsGroup\('soul', '移魂'/, '要在设置页注册这一组')
+  assert.match(client, /var soulGroupState = useState\(false\)/, '默认收起')
+  assert.match(client, /confirmApply/, '执行前要二次确认')
+  assert.match(client, /confirmRollback/, '回滚前要二次确认')
+  // 面板必须说清"凭据不搬"，这是用户最容易误会的一条。
+  assert.match(client, /凭据（API Key 等）永远不搬/)
+})
+
+test('设置页：五条接口都在，写入的两条各自要求 confirm', async () => {
+  const { readFileSync } = await import('node:fs')
+  const routes = readFileSync(new URL('../lib/soul/routes.js', import.meta.url), 'utf8')
+  for (const path of ['export', 'inspect', 'plan', 'apply', 'rollback']) {
+    assert.match(routes, new RegExp(`'/mini-remote/soul/${path}'`), `缺少 /${path} 路由`)
+  }
+  assert.match(routes, /body\.confirm !== true/, 'apply 要在服务端校验 confirm，不能只靠界面点两下')
+  assert.match(routes, /localOnly\(req, res\)/, '五条都要只认同机')
+
+  const host = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
+  assert.match(host, /registerSoulRoutes/, '插件要把路由挂上')
+})
