@@ -2868,6 +2868,37 @@ window.__ModuleLoader__.load({
         }, (label || dir) + ' ↗');
       };
 
+      /** 记住选项（不含密码）：改一次存一次，下次打开还是这套。 */
+      var prefsPayload = function () {
+        return {
+          sessions: soul.sessions,
+          attachments: Boolean(soul.attachments),
+          pluginData: Boolean(soul.pluginData),
+          syncDir: soul.syncDir || '',
+        };
+      };
+      var savePrefs = function () {
+        post('/mini-remote/soul/prefs', prefsPayload()).catch(function () { /* 存不上不影响干活 */ });
+      };
+
+      var prefsLoaded = useState(false);
+      useEffect(function () {
+        if (prefsLoaded[0]) return;
+        prefsLoaded[1](true);
+        getJson('/mini-remote/soul/prefs').then(function (r) {
+          var prefs = (r.body && r.body.prefs) || null;
+          if (!prefs) return;
+          setSoul(function (prev) {
+            var next = Object.assign({}, prev);
+            if (['none', 'recent', 'all'].includes(prefs.sessions)) next.sessions = prefs.sessions;
+            if (typeof prefs.syncDir === 'string' && prefs.syncDir) next.syncDir = prefs.syncDir;
+            if (typeof prefs.attachments === 'boolean') next.attachments = prefs.attachments;
+            if (typeof prefs.pluginData === 'boolean') next.pluginData = prefs.pluginData;
+            return next;
+          });
+        }).catch(function () { /* 读不到就用默认 */ });
+      }, []);
+
       var getJson = function (path) {
         return fetch(path).then(function (res) {
           return res.json().then(
@@ -3024,9 +3055,22 @@ window.__ModuleLoader__.load({
         run('比对中', '/mini-remote/soul/sync/status', { targetDir: soul.syncDir, packDir: soul.packDir })
           .then(function (body) { if (body) patch({ syncStage: { kind: 'status', body: body } }); });
       };
+      /**
+       * 推送 = **直接导出到目标目录**，一步完成。
+       *
+       * 以前要先点「导出」再点「推送」，两个动作、还多占一份本地空间；
+       * 现在点一下就按当前选项打包进目标目录（2026-11-17 用户要求）。
+       */
       var doSyncPush = function () {
-        if (!needSyncTarget() || !needPack('sync')) return;
-        run('推送中', '/mini-remote/soul/sync/push', { targetDir: soul.syncDir, packDir: soul.packDir })
+        if (!needSyncTarget()) return;
+        run('推送中', '/mini-remote/soul/sync/push-live', {
+          targetDir: soul.syncDir,
+          sessions: soul.sessions,
+          sessionLimit: 20,
+          attachments: Boolean(soul.attachments),
+          pluginData: Boolean(soul.pluginData),
+          password: soul.includeSecrets ? (soul.exportPassword || '') : '',
+        }, 'sync')
           .then(function (body) { if (body) patch({ syncStage: { kind: 'push', body: body } }); });
       };
       var doSyncPull = function () {
@@ -3088,7 +3132,7 @@ window.__ModuleLoader__.load({
             type: 'radio',
             name: 'soul-sessions',
             checked: soul.sessions === value,
-            onChange: function () { patch({ sessions: value }); },
+            onChange: function () { patch({ sessions: value }); setTimeout(savePrefs, 0); },
           }),
           text,
         );
@@ -3139,6 +3183,7 @@ window.__ModuleLoader__.load({
           h('div', { style: styles.entryTitle }, pu.skipped ? '远端已是最新' : '推送完成'),
           h('div', { style: styles.muted }, pu.skipped ? (pu.reason || '') : ('新增一份：' + (pu.id || '') + '，约 ' + Math.round((pu.bytes || 0) / 1024) + ' KB')),
           (pu.dropped && pu.dropped.length) ? h('div', { style: styles.muted }, '按保留份数清掉了 ' + pu.dropped.length + ' 份旧快照：' + pu.dropped.join('、')) : null,
+          (pu.notes && pu.notes.length) ? h('div', { style: styles.detail }, '要注意：\n' + pu.notes.join('\n')) : null,
         ));
       }
       if (syncStage && syncStage.kind === 'pull') {
@@ -3224,7 +3269,7 @@ window.__ModuleLoader__.load({
           h('input', {
             type: 'checkbox',
             checked: Boolean(soul.attachments),
-            onChange: function (e) { patch({ attachments: e.target.checked }); },
+            onChange: function (e) { patch({ attachments: e.target.checked }); setTimeout(savePrefs, 0); },
           }),
           '连附件一起带（图片等，可能几百 MB）',
         ),
@@ -3232,7 +3277,7 @@ window.__ModuleLoader__.load({
           h('input', {
             type: 'checkbox',
             checked: Boolean(soul.pluginData),
-            onChange: function (e) { patch({ pluginData: e.target.checked }); },
+            onChange: function (e) { patch({ pluginData: e.target.checked }); setTimeout(savePrefs, 0); },
           }),
           '连插件私有数据一起带（记忆库等；白名单制，缓存不带）',
         ),
@@ -3329,7 +3374,7 @@ window.__ModuleLoader__.load({
           h('input', {
             value: soul.syncDir || '',
             placeholder: '目标目录，例如 D:\\soul-sync 或你的网盘同步文件夹',
-            onChange: function (e) { patch({ syncDir: e.target.value }); },
+            onChange: function (e) { patch({ syncDir: e.target.value }); setTimeout(savePrefs, 0); },
             style: styles.input,
           }),
           h('button', { type: 'button', onClick: function () { pickInto('syncDir'); }, style: Object.assign({}, styles.btn, { flex: 'none' }) }, '选择…'),
@@ -3339,7 +3384,7 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doSyncPush, style: styles.btnPrimary }, '推送'),
           h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doSyncPull, style: styles.btn }, '拉取最新'),
         ),
-        h('div', { style: styles.muted }, '推送用的是上面「导出」产出的那份包；先导出，再推送。默认只保留最近 5 份，旧的自动清掉。'),
+        h('div', { style: styles.muted }, '点「推送」会按上面的选项**直接打包到目标目录**，不需要先导出。默认只保留最近 5 份，旧的自动清掉。'),
         errorNode('sync'),
         syncRows.length ? h('div', { key: 'soul-sync-result', style: styles.block }, syncRows) : null,
       ));

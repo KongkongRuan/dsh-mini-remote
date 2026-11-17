@@ -1288,3 +1288,65 @@ test('设置页：缺前置条件要说人话，不能靠禁用把人晾着', as
   // 导出成功后把包目录自动填上，省掉"抄路径"这一步
   assert.match(client, /packDir: body\.outDir \|\| soul\.packDir/, '导出完要把包目录填好')
 })
+
+// ---------------------------------------------------------------------------
+// P6 续：选项记忆 + 一步推送
+// ---------------------------------------------------------------------------
+
+import { readPrefs, writePrefs } from '../lib/soul/prefs.js'
+import { adoptSnapshot } from '../lib/soul/dir-sync.js'
+
+test('选项记忆：存了能读回来，不认识的键一律忽略', async () => {
+  await withTemp(async (home) => {
+    const saved = await writePrefs(home, { sessions: 'recent', syncDir: 'D:\\sync', password: 'nope', evil: 1 })
+    assert.equal(saved.sessions, 'recent')
+    assert.equal(saved.syncDir, 'D:\\sync')
+    assert.equal('password' in saved, false, '密码绝不能落盘')
+    assert.equal('evil' in saved, false, '不认识的键不写')
+
+    const back = await readPrefs(home)
+    assert.equal(back.sessions, 'recent')
+    // 再存一次只改一项，其余保持
+    const merged = await writePrefs(home, { attachments: true })
+    assert.equal(merged.sessions, 'recent')
+    assert.equal(merged.attachments, true)
+  })
+})
+
+test('一步推送：内容和远端一样时，刚建的那份会被删掉而不是留垃圾', async () => {
+  await withTemp(async (root) => {
+    const target = join(root, 'sync')
+    const { existsSync } = await import('node:fs')
+
+    // 第一次：建在目标目录里，登记成功
+    const first = join(target, 'snapshots', 'soul-a')
+    await makePack(first, { bundles: [], namespaces: {} })
+    const one = await adoptSnapshot({ targetDir: target, id: 'soul-a', dir: first })
+    assert.equal(one.ok, true, one.reason)
+    assert.equal(existsSync(first), true)
+
+    // 第二次：内容相同，应当被判定为重复并删掉
+    const second = join(target, 'snapshots', 'soul-b')
+    await makePack(second, { bundles: [], namespaces: {} })
+    const two = await adoptSnapshot({ targetDir: target, id: 'soul-b', dir: second })
+    assert.equal(two.ok, true)
+    assert.equal(two.skipped, true)
+    assert.equal(existsSync(second), false, '重复的那份要删掉，别让网盘白传')
+  })
+})
+
+test('一步推送：接口在，且按当前选项打包（不依赖本地已有包）', async () => {
+  const { readFileSync } = await import('node:fs')
+  const routes = readFileSync(new URL('../lib/soul/routes.js', import.meta.url), 'utf8')
+  assert.match(routes, /'\/mini-remote\/soul\/sync\/push-live'/)
+  assert.match(routes, /sessions: mode/, '要按选项带会话')
+  assert.match(routes, /pluginData: body\.pluginData === true/)
+  assert.match(routes, /adoptSnapshot\(/, '导出完要登记索引')
+
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+  assert.match(client, /sync\/push-live/, '按钮要打这条')
+  // 推送请求体里不该再出现本地包目录：它自己会导出
+  const pushBody = client.slice(client.indexOf("sync/push-live"), client.indexOf("sync/push-live") + 600)
+  assert.equal(pushBody.includes('packDir'), false, '推送不该依赖本地包目录')
+  assert.match(routes, /以"保存过的选项"为准|readPrefs\(home\)/, '要读保存过的选项')
+})
