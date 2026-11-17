@@ -2993,15 +2993,42 @@ window.__ModuleLoader__.load({
         return h('div', { key: 'picker', style: styles.subGroup }, rows);
       };
 
+      /**
+       * 缺少前置条件时**说话**，不要禁用按钮。禁用是一声不响的，用户会以为按钮坏了
+       * （2026-11-17 用户反馈"点推送一点反馈都没有"就是这么来的）。
+       */
+      var needSyncTarget = function () {
+        if (!soul.syncDir || !String(soul.syncDir).trim()) {
+          patch({ errorAt: 'sync', error: '先填一个目标目录（或点右边「选择…」挑一个），再点这个按钮。' });
+          return false;
+        }
+        return true;
+      };
+      var needPack = function (section) {
+        if (!soul.packDir || !String(soul.packDir).trim()) {
+          patch({
+            errorAt: section,
+            error: section === 'sync'
+              ? '还没有可推送的包：先在上面点「开始导出」，包目录会自动填进来。'
+              : '先填灵魂包目录（或点「选择…」挑一个）。',
+          });
+          return false;
+        }
+        return true;
+      };
+
       var doSyncStatus = function () {
+        if (!needSyncTarget()) return;
         run('比对中', '/mini-remote/soul/sync/status', { targetDir: soul.syncDir, packDir: soul.packDir })
           .then(function (body) { if (body) patch({ syncStage: { kind: 'status', body: body } }); });
       };
       var doSyncPush = function () {
+        if (!needSyncTarget() || !needPack('sync')) return;
         run('推送中', '/mini-remote/soul/sync/push', { targetDir: soul.syncDir, packDir: soul.packDir })
           .then(function (body) { if (body) patch({ syncStage: { kind: 'push', body: body } }); });
       };
       var doSyncPull = function () {
+        if (!needSyncTarget()) return;
         run('拉取中', '/mini-remote/soul/sync/pull', { targetDir: soul.syncDir })
           .then(function (body) { if (body) patch({ syncStage: { kind: 'pull', body: body } }); });
       };
@@ -3014,15 +3041,20 @@ window.__ModuleLoader__.load({
           pluginData: Boolean(soul.pluginData),
           password: soul.includeSecrets ? (soul.exportPassword || '') : '',
         }, 'export').then(function (body) {
-          if (body) patch({ stage: { kind: 'export', body: body }, error: null });
+          if (body) {
+            // 导出完顺手把包目录填进来：下一步要推送的就是这一份，不用用户再抄路径。
+            patch({ stage: { kind: 'export', body: body }, packDir: body.outDir || soul.packDir, error: null, errorAt: null });
+          }
         });
       };
       var doInspect = function () {
+        if (!needPack('import')) return;
         run('体检中', '/mini-remote/soul/inspect', { packDir: soul.packDir }).then(function (body) {
           if (body) patch({ stage: { kind: 'inspect', body: body }, plan: null, error: null });
         });
       };
       var doPlan = function () {
+        if (!needPack('import')) return;
         run('生成计划', '/mini-remote/soul/plan', { packDir: soul.packDir, pathMap: pathMapOf() }).then(function (body) {
           if (body) patch({ stage: { kind: 'plan', body: body }, error: null, confirmApply: false });
         });
@@ -3253,8 +3285,8 @@ window.__ModuleLoader__.load({
           pickerBlock(),
         ),
         h('div', { style: { marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' } },
-          h('button', { type: 'button', disabled: Boolean(soul.busy) || !soul.packDir, onClick: doInspect, style: styles.btn }, '体检（只读）'),
-          h('button', { type: 'button', disabled: Boolean(soul.busy) || !soul.packDir, onClick: doPlan, style: styles.btn }, '生成计划（只读）'),
+          h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doInspect, style: styles.btn }, '体检（只读）'),
+          h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doPlan, style: styles.btn }, '生成计划（只读）'),
         ),
         h('div', { style: { marginTop: 8 } },
           h('input', {
@@ -3301,9 +3333,9 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', onClick: function () { pickInto('syncDir'); }, style: Object.assign({}, styles.btn, { flex: 'none' }) }, '选择…'),
         ),
         h('div', { style: { marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' } },
-          h('button', { type: 'button', disabled: Boolean(soul.busy) || !soul.syncDir, onClick: doSyncStatus, style: styles.btn }, '比对'),
-          h('button', { type: 'button', disabled: Boolean(soul.busy) || !soul.syncDir || !soul.packDir, onClick: doSyncPush, style: styles.btnPrimary }, '推送'),
-          h('button', { type: 'button', disabled: Boolean(soul.busy) || !soul.syncDir, onClick: doSyncPull, style: styles.btn }, '拉取最新'),
+          h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doSyncStatus, style: styles.btn }, '比对'),
+          h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doSyncPush, style: styles.btnPrimary }, '推送'),
+          h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doSyncPull, style: styles.btn }, '拉取最新'),
         ),
         h('div', { style: styles.muted }, '推送用的是上面「导出」产出的那份包；先导出，再推送。默认只保留最近 5 份，旧的自动清掉。'),
         errorNode('sync'),

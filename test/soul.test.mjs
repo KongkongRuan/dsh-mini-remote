@@ -1272,3 +1272,17 @@ test('设置页：错误要显示在它自己那一段，不能跑到板块顶�
   assert.match(client, /patch\(\{ busy: label, error: null, errorAt: null \}\)/)
   assert.match(client, /errorAt: section \|\| null/)
 })
+
+test('设置页：缺前置条件要说人话，不能靠禁用把人晾着', async () => {
+  const { readFileSync } = await import('node:fs')
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+
+  // 同步三个按钮只在"忙"的时候禁用；缺目录/缺包要点下去给人一句解释。
+  assert.match(client, /disabled: Boolean\(soul\.busy\), onClick: doSyncPush/, '推送不该因为缺前置就禁用')
+  assert.match(client, /先填一个目标目录/, '缺目标目录要说话')
+  assert.match(client, /先在上面点「开始导出」/, '缺包要指路')
+  assert.match(client, /disabled: Boolean\(soul\.busy\), onClick: doInspect/, '体检同理')
+
+  // 导出成功后把包目录自动填上，省掉"抄路径"这一步
+  assert.match(client, /packDir: body\.outDir \|\| soul\.packDir/, '导出完要把包目录填好')
+})
