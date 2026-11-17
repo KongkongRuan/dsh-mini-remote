@@ -1431,9 +1431,10 @@ test('设置页：选项要能存住，而且存的是"这次改完的值"', asy
   assert.match(client, /savePrefs\(\{ syncDir: body\.path \}\)/, '选中的目录要存')
 
   // 失败必须说出来，不能静默
-  assert.match(client, /选项没记住：/, '存不上要显示原因')
-  assert.match(client, /'保存中…' : '保存'/, '按钮就叫保存')
-  assert.match(client, /statusPill\('已保存', 'connected'\)/, '点完要有可见反馈')
+  assert.match(client, /选项没保存：/, '存不上要显示原因')
+  assert.match(client, /styles\.btnCopyDone : styles\.btnCopy/, '反馈要长在按钮里，和「已复制」同一套')
+  assert.match(client, /'已保存' : '保存'/, '按钮上要显示已保存')
+  assert.match(client, /setTimeout\(function \(\) \{ patch\(\{ prefsStatus: '' \}\); \}, 1500\)/, '1.5 秒后恢复')
 })
 
 

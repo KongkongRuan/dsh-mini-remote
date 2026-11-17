@@ -2926,17 +2926,19 @@ window.__ModuleLoader__.load({
         patch({ prefsStatus: 'saving' });
         return post('/mini-remote/soul/prefs', payload).then(function (r) {
           if (r.body && r.body.ok) {
+            // 跟「已复制」一样：1.5 秒后自己回到「保存」，不再额外挂状态标签。
             patch({ prefsStatus: 'saved' });
+            setTimeout(function () { patch({ prefsStatus: '' }); }, 1500);
             return true;
           }
           patch({
             prefsStatus: 'failed',
             errorAt: 'export',
-            error: '选项没记住：' + ((r.body && r.body.error) || ('HTTP ' + r.status)),
+            error: '选项没保存：' + ((r.body && r.body.error) || ('HTTP ' + r.status)),
           });
           return false;
         }).catch(function (err) {
-          patch({ prefsStatus: 'failed', errorAt: 'export', error: '选项没记住：' + ((err && err.message) || String(err)) });
+          patch({ prefsStatus: 'failed', errorAt: 'export', error: '选项没保存：' + ((err && err.message) || String(err)) });
           return false;
         });
       };
@@ -3348,20 +3350,17 @@ window.__ModuleLoader__.load({
         // 选项是自动记住的，但得让人**看得见**这件事发生过；也给一个明确的"记住"按钮，
         // 免得总怀疑没保存。
         h('div', { style: { marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' } },
+          // 反馈就在按钮里：和这一页「复制 → 已复制」同一套做法与节奏。
           h('button', {
             type: 'button',
             disabled: Boolean(soul.busy) || soul.prefsStatus === 'saving',
             onClick: function () { savePrefs(); },
-            style: styles.btn,
-          }, soul.prefsStatus === 'saving' ? '保存中…' : '保存'),
-          // 用这一页本来就有的状态标签：绿色=成了、黄=进行中、红=失败。
-          soul.prefsStatus === 'saved' ? statusPill('已保存', 'connected') : null,
-          soul.prefsStatus === 'saving' ? statusPill('保存中', 'pending') : null,
-          soul.prefsStatus === 'failed' ? statusPill('保存失败', 'error') : null,
+            style: soul.prefsStatus === 'saved' ? styles.btnCopyDone : styles.btnCopy,
+          }, soul.prefsStatus === 'saving' ? '保存中…' : (soul.prefsStatus === 'saved' ? '已保存' : '保存')),
           h('div', { style: styles.muted },
-            soul.prefsStatus === 'saved'
-              ? '下次打开还是这套（密码不保存）。'
-              : '改任何一项都会自动保存；想立刻确认就点「保存」。'),
+            soul.prefsStatus === 'failed'
+              ? '没保存成功，原因见下方红字。'
+              : '改任何一项都会自动保存（密码不保存）。'),
         ),
         h('div', { style: styles.muted }, '会话只有两端 DSH 版本一致时才会真正搬过去；版本不同会被跳过并说明。'),
         h('div', { style: { marginTop: 10 } },
