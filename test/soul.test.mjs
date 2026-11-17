@@ -1099,3 +1099,74 @@ test('配置：名单也要从两层 patch 里取（真机上 settings.yaml 只�
     assert.equal(result.settingsNamespaces, 3)
   })
 })
+
+// ---------------------------------------------------------------------------
+// P5：插件私有数据（白名单表照搬参考实现）
+// ---------------------------------------------------------------------------
+
+import { discoverPluginDataAreas, exportPluginData, applyPluginData, readPluginDataIndex } from '../lib/soul/plugin-data.js'
+
+test('私有数据：只发现本 profile 真装了的包，且缓存区域不收', async () => {
+  await withTemp(async (root) => {
+    const homeDir = join(root, 'home')
+    const profileDir = join(root, 'profile')
+    await mkdir(join(profileDir, 'node_modules'), { recursive: true })
+    await mkdir(join(homeDir, '.mnemon/data'), { recursive: true })
+    await mkdir(join(homeDir, '.dsh-wallpaper-engine/cache'), { recursive: true })
+
+    // profile 只装了 mnemon 和壁纸引擎
+    await writeFile(
+      join(profileDir, 'package.json'),
+      // 自述数据目录的包也必须在依赖里——参考实现就是按依赖清单扫的，
+      // 只放在 node_modules 里不算"这个 profile 装了它"。
+      JSON.stringify({ dependencies: { 'dsh-mnemon': '1.0.0', 'dsh-plugin-wallpaper-engine': '1.0.0', 'demo-plugin': '1.0.0' } }),
+      'utf8',
+    )
+    // 一个插件自述自己的数据目录
+    await mkdir(join(profileDir, 'node_modules', 'demo-plugin'), { recursive: true })
+    await writeFile(
+      join(profileDir, 'node_modules', 'demo-plugin', 'package.json'),
+      JSON.stringify({ name: 'demo-plugin', dsh: { dataDirs: [{ path: '.demo-data', role: 'assets' }] } }),
+      'utf8',
+    )
+    await mkdir(join(homeDir, '.demo-data'), { recursive: true })
+
+    const areas = await discoverPluginDataAreas({ profile: 'web', profileDir, homeDir })
+    const paths = areas.map((a) => a.relPath).sort()
+    // 壁纸引擎的 **config** 区要带（缓存是它里面的一个子目录，靠 excludeRel 排除）；
+    // 它自己的 **cache** 区（role= cache）则是整条不收。
+    assert.deepEqual(paths, ['.demo-data', '.dsh-wallpaper-engine', '.mnemon/data'])
+    assert.equal(areas.every((a) => a.role !== 'cache'), true, '缓存区域永远不收')
+    const wallpaper = areas.find((a) => a.relPath === '.dsh-wallpaper-engine')
+    assert.ok(wallpaper.excludeRel.includes('cache'), '缓存子目录要靠排除项挡掉')
+  })
+})
+
+test('私有数据：导出时排除 excludeRel 里的子目录，写回时不覆盖已有文件', async () => {
+  await withTemp(async (root) => {
+    const homeDir = join(root, 'home')
+    const outDir = join(root, 'pack')
+    await mkdir(join(homeDir, '.demo/uploads'), { recursive: true })
+    await mkdir(join(homeDir, '.demo/cache'), { recursive: true })
+    await writeFile(join(homeDir, '.demo/keep.json'), '{"keep":1}', 'utf8')
+    await writeFile(join(homeDir, '.demo/cache/junk.bin'), 'junk', 'utf8')
+    await writeFile(join(homeDir, '.demo/uploads/big.bin'), 'big', 'utf8')
+
+    const areas = [
+      { id: 'demo', relPath: '.demo', role: 'config', excludeRel: ['cache', 'uploads'], source: 'measured', exists: true },
+    ]
+    const packed = await exportPluginData({ areas, outDir, homeDir })
+    assert.equal(packed.areas.length, 1)
+    assert.equal(packed.areas[0].files, 1, '只有 keep.json 该被带走')
+
+    const index = await readPluginDataIndex(outDir)
+    assert.equal(index.areas[0].relPath, '.demo')
+
+    // 目标机上已经有一份同名文件：不许覆盖
+    await writeFile(join(homeDir, '.demo/keep.json'), '{"keep":2}', 'utf8')
+    const written = await applyPluginData({ packDir: outDir, homeDir })
+    assert.equal(written.added.length, 0, '已存在的文件不覆盖')
+    assert.equal(written.skipped, 1)
+    assert.equal(await readFile(join(homeDir, '.demo/keep.json'), 'utf8'), '{"keep":2}', '本地那份要保住')
+  })
+})

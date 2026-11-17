@@ -609,6 +609,7 @@ window.__ModuleLoader__.load({
         packDir: '',
         sessions: 'none',
         attachments: false,
+        pluginData: false,
         picker: null,
         includeSecrets: false,
         exportPassword: '',
@@ -2980,6 +2981,7 @@ window.__ModuleLoader__.load({
           sessions: soul.sessions,
           sessionLimit: 20,
           attachments: soul.attachments,
+          pluginData: Boolean(soul.pluginData),
           password: soul.includeSecrets ? (soul.exportPassword || '') : '',
         }).then(function (body) {
           if (body) patch({ stage: { kind: 'export', body: body }, error: null });
@@ -3123,6 +3125,14 @@ window.__ModuleLoader__.load({
             onChange: function (e) { patch({ attachments: e.target.checked }); },
           }),
           '连附件一起带（图片等，可能几百 MB）',
+        ),
+        h('label', { style: styles.toggleRow },
+          h('input', {
+            type: 'checkbox',
+            checked: Boolean(soul.pluginData),
+            onChange: function (e) { patch({ pluginData: e.target.checked }); },
+          }),
+          '连插件私有数据一起带（记忆库等；白名单制，缓存不带）',
         ),
         h('label', { style: styles.toggleRow },
           h('input', {
