@@ -1049,3 +1049,20 @@ test('设置页：接口 404 时要提示"重启 DSH"，别让人以为功能坏
   assert.match(client, /请重启一次 DSH 再试/)
   assert.equal((client.match(/请重启一次 DSH 再试/g) || []).length >= 2, true, '执行与选择两条路都要说')
 })
+
+test('设置页：结果要显示在各自按钮下面，不能堆到板块底部', async () => {
+  const { readFileSync } = await import('node:fs')
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+
+  const exportTitle = client.indexOf('导出这台电脑的灵魂')
+  const exportResult = client.indexOf("key: 'soul-export-result'")
+  const importTitle = client.indexOf('把一份灵魂包注入到这台电脑')
+  const importResult = client.indexOf("key: 'soul-import-result'")
+
+  assert.ok(exportResult > exportTitle, '导出结果要排在导出区里')
+  assert.ok(exportResult < importTitle, '导出结果不能落到导入区下面去')
+  assert.ok(importResult > importTitle, '导入结果要排在导入区里')
+
+  // 旧写法：把结果攒成一坨推到最底部。这条路径要彻底没有。
+  assert.equal(client.includes("key: 'soul-results'"), false, '不许再有一坨总结果堆在底部')
+})

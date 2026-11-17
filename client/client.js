@@ -2827,6 +2827,83 @@ window.__ModuleLoader__.load({
 
       var pathMapOf = function () {
         var rows = [];
+      // ── 结果区 ──
+      var stage = soul.stage;
+      var exportRows = [];
+      var importRows = [];
+      if (stage && stage.kind === 'export') {
+        var b = stage.body;
+        exportRows.push(h('div', { key: 'r-export', style: styles.block },
+          h('div', { style: styles.entryTitle }, '导出完成'),
+          h('div', { style: styles.muted }, '导出到：'),
+          dirLink(b.outDir),
+          h('div', { style: styles.muted }, (b.fileCount || 0) + ' 个文件，约 ' + Math.round((b.bytes || 0) / 1024) + ' KB'),
+          h('div', { style: styles.muted }, '插件 ' + (b.bundles || 0) + ' 个；配置条目 ' + (b.settingsNamespaces || 0) + ' 条；会话 ' + (b.sessions || 0) + ' 个；附件 ' + (b.attachments || 0) + ' 个。'),
+          (b.notes && b.notes.length)
+            ? h('div', { style: styles.detail }, '要注意：\n' + b.notes.join('\n'))
+            : null,
+        ));
+      }
+      if (stage && stage.kind === 'inspect') {
+        var ins = stage.body;
+        importRows.push(h('div', { key: 'r-inspect', style: styles.block },
+          h('div', { style: styles.entryTitle }, '体检结果'),
+          h('div', { style: styles.warn }, ins.verdict || ''),
+          h('div', { style: styles.muted }, '校验和：' + (ins.integrity && ins.integrity.ok ? '通过' : '没通过——不要执行')),
+          h('div', { style: styles.muted }, '包里有：插件 ' + (ins.content.bundles || 0) + ' 个、配置 ' + (ins.content.settingsNamespaces || 0) + ' 条、会话 ' + (ins.content.sessions || 0) + ' 个、附件 ' + (ins.content.attachments || 0) + ' 个。'),
+          (ins.target && ins.target.missingBundles && ins.target.missingBundles.length)
+            ? h('div', { style: styles.detail }, '目标机缺这些插件（执行时会自动安装）：' + ins.target.missingBundles.slice(0, 8).join('、') + (ins.target.missingBundles.length > 8 ? ' 等' : ''))
+            : null,
+        ));
+      }
+      if (stage && stage.kind === 'plan') {
+        var pl = stage.body;
+        importRows.push(h('div', { key: 'r-plan', style: styles.block },
+          h('div', { style: styles.entryTitle }, '计划：会做这些事'),
+          h('div', { style: styles.muted }, '装包 ' + (pl.summary.install || 0) + '、换版本 ' + (pl.summary.reinstall || 0) + '、启用 ' + (pl.summary.enable || 0) + '、改配置 ' + (pl.summary.replace || 0) + '、新建 ' + (pl.summary.create || 0) + '、跳过 ' + (pl.summary.skip || 0) + '。'),
+          (pl.items && pl.items.length)
+            ? h('div', { style: styles.detail }, pl.items.slice(0, 20).map(function (one) {
+                return '· [' + one.action + '] ' + (one.what || '') + ' — ' + (one.detail || '');
+              }).join('\n'))
+            : null,
+          soul.confirmApply
+            ? h('div', { style: { marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' } },
+                h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doApply, style: styles.btnPrimary }, soul.busy === '执行中' ? '执行中…' : '确认执行'),
+                h('button', { type: 'button', onClick: function () { patch({ confirmApply: false }); }, style: styles.btn }, '取消'),
+              )
+            : h('div', { style: { marginTop: 10 } },
+                h('button', { type: 'button', onClick: function () { patch({ confirmApply: true }); }, style: styles.btnPrimary }, '执行注入…'),
+              ),
+          h('div', { style: styles.muted }, '执行会改配置、装插件、替换补丁与文件。执行前会自动快照。'),
+        ));
+      }
+      if (stage && stage.kind === 'apply') {
+        var ap = stage.body;
+        importRows.push(h('div', { key: 'r-apply', style: styles.block },
+          h('div', { style: styles.entryTitle }, ap.ok ? '注入完成' : '注入有问题'),
+          ap.failed ? h('div', { style: styles.error }, '有 ' + ap.failed + ' 项失败。') : null,
+          ap.snapshotDir ? h('div', { style: styles.muted }, '快照（点开可以看到备份了什么）：') : null,
+          ap.snapshotDir ? dirLink(ap.snapshotDir) : null,
+          (ap.notes && ap.notes.length) ? h('div', { style: styles.detail }, ap.notes.join('\n')) : null,
+          soul.confirmRollback
+            ? h('div', { style: { marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' } },
+                h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doRollback, style: styles.btnDanger }, soul.busy === '回滚中' ? '回滚中…' : '确认回滚'),
+                h('button', { type: 'button', onClick: function () { patch({ confirmRollback: false }); }, style: styles.btn }, '取消'),
+              )
+            : h('div', { style: { marginTop: 10 } },
+                h('button', { type: 'button', disabled: !ap.snapshotDir, onClick: function () { patch({ confirmRollback: true }); }, style: styles.btnDanger }, '回滚这次注入…'),
+              ),
+        ));
+      }
+      if (stage && stage.kind === 'rollback') {
+        var rb = stage.body;
+        importRows.push(h('div', { key: 'r-rollback', style: styles.block },
+          h('div', { style: styles.entryTitle }, rb.ok ? '已回滚' : '回滚部分失败'),
+          (rb.restored && rb.restored.length) ? h('div', { style: styles.muted }, '退回 ' + rb.restored.length + ' 项。') : null,
+          (rb.failed && rb.failed.length) ? h('div', { style: styles.error }, rb.failed.join('\n')) : null,
+        ));
+      }
+
         for (var i = 1; i <= 3; i += 1) {
           var from = (soul['from' + i] || '').trim();
           var to = (soul['to' + i] || '').trim();
@@ -3076,6 +3153,8 @@ window.__ModuleLoader__.load({
             style: styles.btnPrimary,
           }, soul.busy === '导出中' ? '导出中…' : '开始导出'),
         ),
+        // 结果就近显示：谁点的按钮，结果就在谁下面。
+        exportRows.length ? h('div', { key: 'soul-export-result', style: styles.block }, exportRows) : null,
       ));
 
       // ── 导入 ──
@@ -3125,85 +3204,9 @@ window.__ModuleLoader__.load({
             }),
           );
         }),
+        importRows.length ? h('div', { key: 'soul-import-result', style: styles.block }, importRows) : null,
       ));
 
-      // ── 结果区 ──
-      var stage = soul.stage;
-      var stageRows = [];
-      if (stage && stage.kind === 'export') {
-        var b = stage.body;
-        stageRows.push(h('div', { key: 'r-export', style: styles.block },
-          h('div', { style: styles.entryTitle }, '导出完成'),
-          h('div', { style: styles.muted }, '导出到：'),
-          dirLink(b.outDir),
-          h('div', { style: styles.muted }, (b.fileCount || 0) + ' 个文件，约 ' + Math.round((b.bytes || 0) / 1024) + ' KB'),
-          h('div', { style: styles.muted }, '插件 ' + (b.bundles || 0) + ' 个；配置条目 ' + (b.settingsNamespaces || 0) + ' 条；会话 ' + (b.sessions || 0) + ' 个；附件 ' + (b.attachments || 0) + ' 个。'),
-          (b.notes && b.notes.length)
-            ? h('div', { style: styles.detail }, '要注意：\n' + b.notes.join('\n'))
-            : null,
-        ));
-      }
-      if (stage && stage.kind === 'inspect') {
-        var ins = stage.body;
-        stageRows.push(h('div', { key: 'r-inspect', style: styles.block },
-          h('div', { style: styles.entryTitle }, '体检结果'),
-          h('div', { style: styles.warn }, ins.verdict || ''),
-          h('div', { style: styles.muted }, '校验和：' + (ins.integrity && ins.integrity.ok ? '通过' : '没通过——不要执行')),
-          h('div', { style: styles.muted }, '包里有：插件 ' + (ins.content.bundles || 0) + ' 个、配置 ' + (ins.content.settingsNamespaces || 0) + ' 条、会话 ' + (ins.content.sessions || 0) + ' 个、附件 ' + (ins.content.attachments || 0) + ' 个。'),
-          (ins.target && ins.target.missingBundles && ins.target.missingBundles.length)
-            ? h('div', { style: styles.detail }, '目标机缺这些插件（执行时会自动安装）：' + ins.target.missingBundles.slice(0, 8).join('、') + (ins.target.missingBundles.length > 8 ? ' 等' : ''))
-            : null,
-        ));
-      }
-      if (stage && stage.kind === 'plan') {
-        var pl = stage.body;
-        stageRows.push(h('div', { key: 'r-plan', style: styles.block },
-          h('div', { style: styles.entryTitle }, '计划：会做这些事'),
-          h('div', { style: styles.muted }, '装包 ' + (pl.summary.install || 0) + '、换版本 ' + (pl.summary.reinstall || 0) + '、启用 ' + (pl.summary.enable || 0) + '、改配置 ' + (pl.summary.replace || 0) + '、新建 ' + (pl.summary.create || 0) + '、跳过 ' + (pl.summary.skip || 0) + '。'),
-          (pl.items && pl.items.length)
-            ? h('div', { style: styles.detail }, pl.items.slice(0, 20).map(function (one) {
-                return '· [' + one.action + '] ' + (one.what || '') + ' — ' + (one.detail || '');
-              }).join('\n'))
-            : null,
-          soul.confirmApply
-            ? h('div', { style: { marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' } },
-                h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doApply, style: styles.btnPrimary }, soul.busy === '执行中' ? '执行中…' : '确认执行'),
-                h('button', { type: 'button', onClick: function () { patch({ confirmApply: false }); }, style: styles.btn }, '取消'),
-              )
-            : h('div', { style: { marginTop: 10 } },
-                h('button', { type: 'button', onClick: function () { patch({ confirmApply: true }); }, style: styles.btnPrimary }, '执行注入…'),
-              ),
-          h('div', { style: styles.muted }, '执行会改配置、装插件、替换补丁与文件。执行前会自动快照。'),
-        ));
-      }
-      if (stage && stage.kind === 'apply') {
-        var ap = stage.body;
-        stageRows.push(h('div', { key: 'r-apply', style: styles.block },
-          h('div', { style: styles.entryTitle }, ap.ok ? '注入完成' : '注入有问题'),
-          ap.failed ? h('div', { style: styles.error }, '有 ' + ap.failed + ' 项失败。') : null,
-          ap.snapshotDir ? h('div', { style: styles.muted }, '快照（点开可以看到备份了什么）：') : null,
-          ap.snapshotDir ? dirLink(ap.snapshotDir) : null,
-          (ap.notes && ap.notes.length) ? h('div', { style: styles.detail }, ap.notes.join('\n')) : null,
-          soul.confirmRollback
-            ? h('div', { style: { marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' } },
-                h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doRollback, style: styles.btnDanger }, soul.busy === '回滚中' ? '回滚中…' : '确认回滚'),
-                h('button', { type: 'button', onClick: function () { patch({ confirmRollback: false }); }, style: styles.btn }, '取消'),
-              )
-            : h('div', { style: { marginTop: 10 } },
-                h('button', { type: 'button', disabled: !ap.snapshotDir, onClick: function () { patch({ confirmRollback: true }); }, style: styles.btnDanger }, '回滚这次注入…'),
-              ),
-        ));
-      }
-      if (stage && stage.kind === 'rollback') {
-        var rb = stage.body;
-        stageRows.push(h('div', { key: 'r-rollback', style: styles.block },
-          h('div', { style: styles.entryTitle }, rb.ok ? '已回滚' : '回滚部分失败'),
-          (rb.restored && rb.restored.length) ? h('div', { style: styles.muted }, '退回 ' + rb.restored.length + ' 项。') : null,
-          (rb.failed && rb.failed.length) ? h('div', { style: styles.error }, rb.failed.join('\n')) : null,
-        ));
-      }
-
-      if (stageRows.length) rows.push(h('div', { key: 'soul-results', style: styles.group }, stageRows));
 
       return h('div', null,
         soul.error ? h('div', { style: styles.error }, soul.error) : null,
