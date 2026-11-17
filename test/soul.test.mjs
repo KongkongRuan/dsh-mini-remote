@@ -937,3 +937,45 @@ test('设置页：导出结果里的目录可以点开', async () => {
   assert.match(client, /dirLink\(b\.outDir\)/, '导出目录要能点')
   assert.match(client, /dirLink\(ap\.snapshotDir\)/, '快照目录也要能点')
 })
+
+test('配置：没有 describeAll 时退回按 settings.yaml 的键名逐个问', async () => {
+  await withTemp(async (root) => {
+    const home = join(root, 'home')
+    await mkdir(join(home, 'profiles', 'web'), { recursive: true })
+    await writeFile(join(home, 'profiles', 'web', 'package.json'), JSON.stringify({ dsh: { profile: { bundles: [] } } }), 'utf8')
+    // 真机就是这份文件：已经被导入进 profile patch，内容不等于生效值，但键名还能用。
+    await writeFile(join(home, 'settings.yaml'), ['llm-deepseek:', '  apiKey: x', 'skin:', '  name: dark', 'broken-entry:', '  a: 1', ''].join('\n'), 'utf8')
+
+    const asked = []
+    const ctx = {
+      get: (name) =>
+        name === 'settings'
+          ? {
+              // 故意不给 describeAll
+              describe: async (ns) => {
+                asked.push(ns)
+                if (ns === 'broken-entry') throw new Error('条目不存在')
+                return { value: { ok: ns }, revision: 3 }
+              },
+            }
+          : name === 'pluginManager'
+            ? { listBundles: async () => [], listVersionExemptions: async () => ({ runtimeVersion: '0.2.2-rc.3' }) }
+            : undefined,
+    }
+    const { exportSoul } = await import('../lib/soul/export.js')
+    // resolveHome 读的是进程环境：不指过去的话，这段会去读真实机器上的 settings.yaml。
+    const previous = process.env.DSH_HOME
+    process.env.DSH_HOME = home
+    let result
+    try {
+      result = await exportSoul({ ctx, home, profile: 'web', outDir: join(root, 'pack'), runPack: async () => null })
+    } finally {
+      if (previous === undefined) delete process.env.DSH_HOME
+      else process.env.DSH_HOME = previous
+    }
+    assert.equal(result.ok, true)
+    assert.equal(result.configExported, true, '要真的导出配置，而不是一句"读不到"')
+    assert.equal(result.settingsNamespaces, 2, '两条能读到的要导出去')
+    assert.deepEqual(asked.sort(), ['broken-entry', 'llm-deepseek', 'skin'], '三个名字都要问一遍')
+  })
+})
