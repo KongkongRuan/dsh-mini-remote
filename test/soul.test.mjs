@@ -276,3 +276,22 @@ test('指纹：同样的变更集算出同一个指纹，动作一变就变', ()
   assert.notEqual(a, c)
   assert.equal(a.length, 64, '指纹应是 sha256 十六进制')
 })
+
+test('移魂技能：随包分发、有 frontmatter、并写进打包白名单', async () => {
+  const { readFileSync } = await import('node:fs')
+  const skill = readFileSync(new URL('../SKILL-soul.md', import.meta.url), 'utf8')
+  assert.match(skill, /^---\r?\n/, '要有 frontmatter')
+  assert.match(skill, /^name: dsh-mini-remote-soul$/m, '技能名要对')
+  assert.match(skill, /^description: .+/m, '要有 description')
+
+  // 操作规程里必须写清"哪些能搬、哪些不能"，否则模型会向用户过度承诺。
+  assert.match(skill, /凭据/, '要讲凭据层不能搬')
+  assert.match(skill, /不替用户重启/, '要写明不自动重启')
+
+  const host = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
+  assert.match(host, /SKILL-soul\.md/, '插件要读这个文件')
+  assert.match(host, /name: 'dsh-mini-remote-soul'/, '要注册技能')
+
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+  assert.ok(pkg.files.includes('SKILL-soul.md'), 'SKILL-soul.md 要在 files 白名单里，否则装完读不到')
+})

@@ -17,6 +17,7 @@
     "lib",
     "client/client.js",
     "SKILL.md",
+    "SKILL-soul.md",
     "docs/guide",
     "docs/DSH-Everywhere.md",
     "relay-server",
