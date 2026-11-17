@@ -3379,3 +3379,22 @@ test('附件图片：没有扩展名也要认得出来（会话里的图就是�
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('正文里的图片地址：Markdown 的尖括号写法要剥掉', async () => {
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../lib/page-markdown.js', import.meta.url), 'utf8')
+  const start = src.indexOf('function imageSrc(')
+  assert.ok(start > 0, '要能找到 imageSrc')
+  const end = src.indexOf('\n  }', start)
+  const body = src.slice(start, end + 4)
+  // 只取这一个纯函数来跑：它不碰 DOM，依赖的 artUrl 给个假的即可。
+  const factory = new Function('artUrl', `${body}\nreturn imageSrc`)
+  const imageSrc = factory(() => '/mini/art/stub.webp')
+
+  // 尖括号是 Markdown 语法，不是路径的一部分
+  assert.equal(imageSrc('<C:/x/y.png>'), '/mini/art/?p=' + encodeURIComponent('C:/x/y.png'))
+  // 正常写法照旧
+  assert.equal(imageSrc('C:/x/y.png'), '/mini/art/?p=' + encodeURIComponent('C:/x/y.png'))
+  // http(s) 原样
+  assert.equal(imageSrc('https://example.com/a.png'), 'https://example.com/a.png')
+})
