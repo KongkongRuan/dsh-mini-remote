@@ -2820,7 +2820,9 @@ window.__ModuleLoader__.load({
               // 这时候说"重启一次 DSH"比说"请求失败"有用得多。
               patch({
                 errorAt: section || null,
-                error: r.status === 404
+                // 404 与 405 在这里是同一件事：新接口还没注册上（405 是"路径认得出、方法不认"，
+                // 对未注册的 POST 路由，DSH 就是这么回的）。
+                error: (r.status === 404 || r.status === 405)
                   ? '这个功能需要新版本的插件接口，但当前宿主还是旧的：请重启一次 DSH 再试。'
                   : (r.body && (r.body.error || r.body.verdict)) || ('请求失败（HTTP ' + r.status + '）'),
               });
@@ -2904,7 +2906,7 @@ window.__ModuleLoader__.load({
           }
           patch({
             errorAt: section,
-            error: r.status === 404
+            error: (r.status === 404 || r.status === 405)
               ? '这个功能需要新版本的插件接口，但当前宿主还是旧的：请重启一次 DSH 再试。'
               : (body.reason || '没能打开选择框，请手动填目录。'),
           });

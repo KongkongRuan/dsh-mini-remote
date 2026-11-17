@@ -1047,6 +1047,8 @@ test('设置页：接口 404 时要提示"重启 DSH"，别让人以为功能坏
   const { readFileSync } = await import('node:fs')
   const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
   assert.match(client, /请重启一次 DSH 再试/)
+  // 405 在"新路由还没注册"时和 404 是一回事，别让用户看到一串状态码发呆
+  assert.match(client, /r\.status === 404 \|\| r\.status === 405/)
   assert.equal((client.match(/请重启一次 DSH 再试/g) || []).length >= 2, true, '执行与选择两条路都要说')
 })
 
