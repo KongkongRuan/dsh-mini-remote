@@ -800,7 +800,7 @@ test('设置页：移魂面板存在、默认收起、写入动作要二次确�
   assert.match(client, /confirmApply/, '执行前要二次确认')
   assert.match(client, /confirmRollback/, '回滚前要二次确认')
   // 面板必须说清"凭据不搬"，这是用户最容易误会的一条。
-  assert.match(client, /凭据（API Key 等）永远不搬/)
+  assert.match(client, /凭据一起带（API Key 等，需要你自己设一个密码）/, '要说明凭据可选、要密码')
 })
 
 test('设置页：五条接口都在，写入的两条各自要求 confirm', async () => {
@@ -823,4 +823,77 @@ test('设置页：移魂这一组的 children 必须传数组，否则整组被�
   // 传错了不会报错，只会"什么都没显示"——这条测试专门钉住它。
   assert.match(client, /settingsGroup\('soul', '移魂大法', groups\.soulOpen, groups\.toggleSoul,\s*\[soulBlock\(/, '要传数组')
   assert.match(client, /if \(!children\.length\) return null/, '前提没变')
+})
+
+// ---------------------------------------------------------------------------
+// P4：凭据通道（加密）
+// ---------------------------------------------------------------------------
+
+import { encryptSecrets, decryptSecrets, listSecretRefs, applySecrets } from '../lib/soul/secrets.js'
+
+test('凭据：加密后看不到明文，密码对了才能解回', () => {
+  const entries = [{ ref: 'DEEPSEEK_API_KEY', value: 'sk-very-secret-value' }]
+  const blob = encryptSecrets(entries, 'hunter2hunter2')
+  const text = blob.toString('latin1')
+  assert.equal(text.includes('sk-very-secret-value'), false, '密文里不能出现明文')
+  assert.equal(text.includes('DEEPSEEK_API_KEY'), false, '连 ref 名也不该是明文')
+
+  const back = decryptSecrets(blob, 'hunter2hunter2')
+  assert.deepEqual(back, entries)
+})
+
+test('凭据：密码不对要明确报错，不能返回空数据', () => {
+  const blob = encryptSecrets([{ ref: 'A', value: 'x' }], 'password1')
+  assert.throws(() => decryptSecrets(blob, 'password2'), /密码不对/)
+})
+
+test('凭据：改一个字节就解不开（GCM 会拒绝）', () => {
+  const blob = encryptSecrets([{ ref: 'A', value: 'x' }], 'password1')
+  const tampered = Buffer.from(blob)
+  tampered[tampered.length - 1] ^= 0xff
+  assert.throws(() => decryptSecrets(tampered, 'password1'), /密码不对|被改过/)
+})
+
+test('凭据：短密码不许用', () => {
+  assert.throws(() => encryptSecrets([{ ref: 'A', value: 'x' }], '123'), /至少 6 位/)
+})
+
+test('凭据：ref 名单从 .credentials.yaml 的 refs 段读，不碰值', async () => {
+  await withTemp(async (home) => {
+    await writeFile(
+      join(home, '.credentials.yaml'),
+      ['version: 1', 'records:', 'refs:', '  AAA_KEY: { value: secret-a }', '  BBB_KEY:', '    value: secret-b', 'other:', '  CCC: 1', ''].join('\n'),
+      'utf8',
+    )
+    assert.deepEqual(await listSecretRefs(home), ['AAA_KEY', 'BBB_KEY'])
+  })
+})
+
+test('凭据：写入逐条报告，一条失败不影响其它', async () => {
+  const calls = []
+  const ctx = {
+    get: (name) =>
+      name === 'credentials'
+        ? {
+            set: async (ref, value) => {
+              calls.push([ref, value])
+              if (ref === 'BAD') throw new Error('nope')
+            },
+          }
+        : undefined,
+  }
+  const result = await applySecrets(ctx, [{ ref: 'OK1', value: 'a' }, { ref: 'BAD', value: 'b' }, { ref: 'OK2', value: 'c' }])
+  assert.equal(result.ok, false)
+  assert.deepEqual(result.written, ['OK1', 'OK2'])
+  assert.equal(result.failed[0].ref, 'BAD')
+})
+
+test('凭据：agent 工具明确拒收密码，并指路设置页', async () => {
+  const { readFileSync } = await import('node:fs')
+  const tools = readFileSync(new URL('../lib/soul/tools.js', import.meta.url), 'utf8')
+  assert.match(tools, /这个工具不接受密码/, '要在执行前挡掉')
+  assert.match(tools, /设置 → 遥控设置 → 移魂大法/, '要告诉用户去哪里')
+  // 参数表里不许出现 password
+  const params = tools.slice(tools.indexOf('const tools = ['), tools.indexOf('for (const tool of tools)'))
+  assert.equal(/password:/.test(params), false, '工具参数里不能有 password')
 })

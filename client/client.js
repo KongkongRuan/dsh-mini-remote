@@ -609,6 +609,9 @@ window.__ModuleLoader__.load({
         packDir: '',
         sessions: 'none',
         attachments: false,
+        includeSecrets: false,
+        exportPassword: '',
+        applyPassword: '',
         busy: '',
         stage: null,
         error: null,
@@ -2830,6 +2833,7 @@ window.__ModuleLoader__.load({
           sessions: soul.sessions,
           sessionLimit: 20,
           attachments: soul.attachments,
+          password: soul.includeSecrets ? (soul.exportPassword || '') : '',
         }).then(function (body) {
           if (body) patch({ stage: { kind: 'export', body: body }, error: null });
         });
@@ -2851,6 +2855,7 @@ window.__ModuleLoader__.load({
           planId: planId,
           confirm: true,
           pathMap: pathMapOf(),
+          password: soul.applyPassword || '',
         }).then(function (body) {
           if (body) patch({ stage: { kind: 'apply', body: body }, confirmApply: false, error: body.ok === false ? (body.error || '有项失败') : null });
         });
@@ -2895,7 +2900,27 @@ window.__ModuleLoader__.load({
           }),
           '连附件一起带（图片等，可能几百 MB）',
         ),
-        h('div', { style: styles.muted }, '会话只有两端 DSH 版本一致时才会真正搬过去；版本不同会被跳过并说明。凭据（API Key 等）永远不搬。'),
+        h('label', { style: styles.toggleRow },
+          h('input', {
+            type: 'checkbox',
+            checked: Boolean(soul.includeSecrets),
+            onChange: function (e) { patch({ includeSecrets: e.target.checked }); },
+          }),
+          '连凭据一起带（API Key 等，需要你自己设一个密码）',
+        ),
+        soul.includeSecrets
+          ? h('div', { style: { marginTop: 6 } },
+              h('input', {
+                type: 'password',
+                value: soul.exportPassword || '',
+                placeholder: '设一个密码（至少 6 位），到新电脑上要用同一串',
+                onChange: function (e) { patch({ exportPassword: e.target.value }); },
+                style: styles.input,
+              }),
+              h('div', { style: styles.muted }, '密码只在这台电脑的内存里过一道：不写进包、不写进日志。忘了就解不开，只能重新填。'),
+            )
+          : null,
+        h('div', { style: styles.muted }, '会话只有两端 DSH 版本一致时才会真正搬过去；版本不同会被跳过并说明。'),
         h('div', { style: { marginTop: 10 } },
           h('button', {
             type: 'button',
@@ -2921,6 +2946,15 @@ window.__ModuleLoader__.load({
         h('div', { style: { marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' } },
           h('button', { type: 'button', disabled: Boolean(soul.busy) || !soul.packDir, onClick: doInspect, style: styles.btn }, '体检（只读）'),
           h('button', { type: 'button', disabled: Boolean(soul.busy) || !soul.packDir, onClick: doPlan, style: styles.btn }, '生成计划（只读）'),
+        ),
+        h('div', { style: { marginTop: 8 } },
+          h('input', {
+            type: 'password',
+            value: soul.applyPassword || '',
+            placeholder: '如果这个包带了凭据，在这里输入导出时设的密码',
+            onChange: function (e) { patch({ applyPassword: e.target.value }); },
+            style: styles.input,
+          }),
         ),
         // 路径映射：只在会话 cwd 需要换盘符/换目录时用。
         h('div', { style: styles.muted }, '路径映射（可选）：旧目录 → 新目录。只用在工作区与会话的 cwd 上，正文里提到的旧路径不会改。'),
