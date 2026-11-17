@@ -1,9 +1,9 @@
 ---
 name: dsh-mini-remote-soul
-description: 当用户要把一台电脑上的 DSH 整体搬到另一台（俗话说的"移魂/夺舍/搬家/克隆"），或者要给当前这台做一份可搬运的灵魂备份时使用。走 soul_export → soul_inspect → soul_plan → soul_apply → soul_rollback 五步；先讲清哪几层能搬、哪几层不能，再动手。
+description: 当用户要把一台电脑上的 DSH 整体搬到另一台（也就是本插件的「移魂大法」，俗话说的"移魂/夺舍/搬家/克隆"），或者要给当前这台做一份可搬运的灵魂备份时使用。走 soul_export → soul_inspect → soul_plan → soul_apply → soul_rollback 五步；先讲清哪几层能搬、哪几层不能，再动手。
 ---
 
-# 移魂：把一台电脑上的 DSH 搬到另一台
+# 移魂大法：把一台电脑上的 DSH 搬到另一台
 
 ## 先讲清楚能搬什么
 

@@ -795,7 +795,7 @@ test('设置页：移魂面板存在、默认收起、写入动作要二次确�
   const { readFileSync } = await import('node:fs')
   const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
   assert.match(client, /function soulBlock\(/, '要有面板渲染函数')
-  assert.match(client, /settingsGroup\('soul', '移魂'/, '要在设置页注册这一组')
+  assert.match(client, /settingsGroup\('soul', '移魂大法'/, '要在设置页注册这一组')
   assert.match(client, /var soulGroupState = useState\(false\)/, '默认收起')
   assert.match(client, /confirmApply/, '执行前要二次确认')
   assert.match(client, /confirmRollback/, '回滚前要二次确认')
@@ -821,6 +821,6 @@ test('设置页：移魂这一组的 children 必须传数组，否则整组被�
   const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
   // settingsGroup 开头是 `if (!children.length) return null`：单个元素没有 length，
   // 传错了不会报错，只会"什么都没显示"——这条测试专门钉住它。
-  assert.match(client, /settingsGroup\('soul', '移魂', groups\.soulOpen, groups\.toggleSoul,\s*\[soulBlock\(/, '要传数组')
+  assert.match(client, /settingsGroup\('soul', '移魂大法', groups\.soulOpen, groups\.toggleSoul,\s*\[soulBlock\(/, '要传数组')
   assert.match(client, /if \(!children\.length\) return null/, '前提没变')
 })

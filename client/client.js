@@ -2764,7 +2764,7 @@ window.__ModuleLoader__.load({
         // 移魂排在诊断之前：它是给人用的功能，不是排障。默认收起，和别的组一致。
         // ⚠️ children 必须是**数组**：settingsGroup 开头有一句 `if (!children.length) return null`，
         // 传单个元素的话 .length 是 undefined，整组会被静默丢掉（2026-11-17 真机上就是这么丢的）。
-        settingsGroup('soul', '移魂', groups.soulOpen, groups.toggleSoul,
+        settingsGroup('soul', '移魂大法', groups.soulOpen, groups.toggleSoul,
           [soulBlock(groups.soul, groups.setSoul)],
           '把一台电脑上的 DSH 打包搬到另一台：插件组合、配置、会话与附件。'),
         settingsGroup('diagnostics', '诊断与高级', groups.diagnosticsOpen, groups.toggleDiagnostics, diagnostics,
