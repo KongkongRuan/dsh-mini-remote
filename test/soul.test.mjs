@@ -1066,3 +1066,36 @@ test('设置页：结果要显示在各自按钮下面，不能堆到板块底�
   // 旧写法：把结果攒成一坨推到最底部。这条路径要彻底没有。
   assert.equal(client.includes("key: 'soul-results'"), false, '不许再有一坨总结果堆在底部')
 })
+
+test('配置：名单也要从两层 patch 里取（真机上 settings.yaml 只剩一条）', async () => {
+  await withTemp(async (root) => {
+    const home = join(root, 'home')
+    await mkdir(join(home, 'profiles', 'web'), { recursive: true })
+    await writeFile(join(home, 'profiles', 'web', 'package.json'), JSON.stringify({ dsh: { profile: { bundles: [] } } }), 'utf8')
+    // 真机现状：settings.yaml 里只剩一条，真正的条目都在 profile patch 里。
+    await writeFile(join(home, 'settings.yaml'), 'llm-pi-ai:\n  a: 1\n', 'utf8')
+    await writeFile(join(home, 'profiles', 'web', 'cordis.patch.yml'), ['- insert:', '    - id: cost-meter', '      name: x', '    - id: ui-settings-general', ''].join('\n'), 'utf8')
+
+    const asked = []
+    const ctx = {
+      get: (name) =>
+        name === 'settings'
+          ? { describe: async (ns) => { asked.push(ns); return { value: { ns }, revision: 1 } } }
+          : name === 'pluginManager'
+            ? { listBundles: async () => [], listVersionExemptions: async () => ({ runtimeVersion: '0.2.2-rc.3' }) }
+            : undefined,
+    }
+    const { exportSoul } = await import('../lib/soul/export.js')
+    const previous = process.env.DSH_HOME
+    process.env.DSH_HOME = home
+    let result
+    try {
+      result = await exportSoul({ ctx, home, profile: 'web', outDir: join(root, 'pack'), runPack: async () => null })
+    } finally {
+      if (previous === undefined) delete process.env.DSH_HOME
+      else process.env.DSH_HOME = previous
+    }
+    assert.deepEqual(asked.sort(), ['cost-meter', 'llm-pi-ai', 'ui-settings-general'])
+    assert.equal(result.settingsNamespaces, 3)
+  })
+})
