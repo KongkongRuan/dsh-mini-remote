@@ -1384,3 +1384,37 @@ test('设置页：弹框选中的目录也要存住，且"只读一次"的旗标
   assert.match(client.slice(0, start), /var soulPrefsLoaded = false;/, '应在模块作用域定义一次')
   assert.match(body, /if \(soulPrefsLoaded\) return;/, '读之前先看旗标')
 })
+
+test('选项记忆：同一条路由能读也能写（不要注册两次，后注册的会顶掉前一个）', async () => {
+  await withTemp(async (home) => {
+    process.env.DSH_HOME = home
+    const { registerSoulRoutes } = await import('../lib/soul/routes.js')
+    const seen = []
+    const handlers = new Map()
+    registerSoulRoutes({
+      ctx: { get: () => undefined },
+      mountRoute: ({ path, handler }) => {
+        handlers.set(path, handler)
+        return () => {}
+      },
+      localOnly: () => true,
+      readBody: async (req) => req.body,
+      sendJson: (_res, status, payload) => seen.push({ status, payload }),
+      log: { warn: () => {} },
+    })
+    const handler = handlers.get('/mini-remote/soul/prefs')
+    assert.ok(handler, '要有 prefs 路由')
+
+    await handler({ method: 'GET' }, {})
+    assert.deepEqual(seen.pop().payload.prefs, {}, '一开始是空的')
+
+    await handler({ method: 'POST', body: { syncDir: 'D:\\sync' } }, {})
+    const saved = seen.pop()
+    assert.equal(saved.payload.ok, true)
+    assert.equal(saved.payload.prefs.syncDir, 'D:\\sync')
+
+    await handler({ method: 'GET' }, {})
+    assert.equal(seen.pop().payload.prefs.syncDir, 'D:\\sync', '写进去的要读得回来')
+    delete process.env.DSH_HOME
+  })
+})
