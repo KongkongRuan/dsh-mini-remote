@@ -1483,3 +1483,10 @@ test('设置页：进行中的状态要显示在按钮上，不占板面顶部�
   assert.match(client, /soul\.busy === '拉取中' \? '拉取中…' : '拉取最新'/)
   assert.match(client, /soul\.busy === '体检中' \? '体检中…' : '体检（只读）'/)
 })
+
+test('设置页：同步区不再挂"按上面选项直接打包"那行说明', async () => {
+  const { readFileSync } = await import('node:fs')
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+  assert.equal(client.includes('不需要先导出'), false)
+  assert.equal(client.includes('默认只保留最近 5 份，旧的自动清掉'), false)
+})

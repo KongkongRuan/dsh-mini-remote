@@ -3448,7 +3448,6 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doSyncPull, style: styles.btn },
             soul.busy === '拉取中' ? '拉取中…' : '拉取最新'),
         ),
-        h('div', { style: styles.muted }, '点「推送」会按上面的选项**直接打包到目标目录**，不需要先导出。默认只保留最近 5 份，旧的自动清掉。'),
         errorNode('sync'),
         syncRows.length ? h('div', { key: 'soul-sync-result', style: styles.block }, syncRows) : null,
       ));
