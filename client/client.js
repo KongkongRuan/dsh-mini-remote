@@ -3391,8 +3391,10 @@ window.__ModuleLoader__.load({
           pickerBlock(),
         ),
         h('div', { style: { marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' } },
-          h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doInspect, style: styles.btn }, '体检（只读）'),
-          h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doPlan, style: styles.btn }, '生成计划（只读）'),
+          h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doInspect, style: styles.btn },
+            soul.busy === '体检中' ? '体检中…' : '体检（只读）'),
+          h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doPlan, style: styles.btn },
+            soul.busy === '生成计划' ? '生成中…' : '生成计划（只读）'),
         ),
         h('div', { style: { marginTop: 8 } },
           h('input', {
@@ -3439,9 +3441,12 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', onClick: function () { pickInto('syncDir'); }, style: Object.assign({}, styles.btn, { flex: 'none' }) }, '选择…'),
         ),
         h('div', { style: { marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' } },
-          h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doSyncStatus, style: styles.btn }, '比对'),
-          h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doSyncPush, style: styles.btnPrimary }, '推送'),
-          h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doSyncPull, style: styles.btn }, '拉取最新'),
+          h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doSyncStatus, style: styles.btn },
+            soul.busy === '比对中' ? '比对中…' : '比对'),
+          h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doSyncPush, style: styles.btnPrimary },
+            soul.busy === '推送中' ? '推送中…' : '推送'),
+          h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doSyncPull, style: styles.btn },
+            soul.busy === '拉取中' ? '拉取中…' : '拉取最新'),
         ),
         h('div', { style: styles.muted }, '点「推送」会按上面的选项**直接打包到目标目录**，不需要先导出。默认只保留最近 5 份，旧的自动清掉。'),
         errorNode('sync'),
@@ -3452,7 +3457,6 @@ window.__ModuleLoader__.load({
       return h('div', null,
         // 错误默认跟着各自的按钮走；只有拿不到归属时才退回顶部（极少见）。
         (soul.error && !soul.errorAt) ? h('div', { style: styles.error }, soul.error) : null,
-        soul.busy ? h('div', { style: styles.loading }, soul.busy + '…') : null,
         rows,
       );
     }

@@ -1469,3 +1469,17 @@ test('设置页：保存与开始导出在同一行', async () => {
   assert.ok(row.indexOf('开始导出') < row.indexOf("'保存'"), '导出在左、保存在右')
   assert.match(row, /flex: '1 1 auto'/, '中间要有撑开的占位把保存推到右边')
 })
+
+test('设置页：进行中的状态要显示在按钮上，不占板面顶部一行', async () => {
+  const { readFileSync } = await import('node:fs')
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+
+  // 顶部那行"推送中…"已经删掉
+  assert.equal(client.includes("soul.busy + '…'"), false, '不该在顶部再挂一行进度')
+
+  // 每个动作的按钮自己显示
+  assert.match(client, /soul\.busy === '推送中' \? '推送中…' : '推送'/)
+  assert.match(client, /soul\.busy === '比对中' \? '比对中…' : '比对'/)
+  assert.match(client, /soul\.busy === '拉取中' \? '拉取中…' : '拉取最新'/)
+  assert.match(client, /soul\.busy === '体检中' \? '体检中…' : '体检（只读）'/)
+})
