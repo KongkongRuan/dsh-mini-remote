@@ -1368,3 +1368,19 @@ test('设置页：面板里不许调钩子（那会让整个设置页白屏）',
   assert.match(body, /var loadPrefs = function/, '要有个普通函数负责读')
   assert.equal(body.includes('groups.loadPrefs'), false, '不能在组件作用域里引用它')
 })
+
+test('设置页：弹框选中的目录也要存住，且"只读一次"的旗标在模块作用域', async () => {
+  const { readFileSync } = await import('node:fs')
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+
+  // 手打路径有 onChange 兜着；弹框选中的那条路以前谁来存？没人。
+  assert.match(client, /if \(field === 'syncDir'\) setTimeout\(savePrefs, 0\)/, '选完目录要保存')
+
+  // 旗标放在渲染函数里会每次渲染都重置 → 每次渲染都去问一遍服务端
+  const start = client.indexOf('function soulBlock(')
+  const end = client.indexOf('function collapsibleSub(')
+  const body = client.slice(start, end)
+  assert.equal(body.includes('var soulPrefsLoaded'), false, '旗标不能放在面板函数里')
+  assert.match(client.slice(0, start), /var soulPrefsLoaded = false;/, '应在模块作用域定义一次')
+  assert.match(body, /if \(soulPrefsLoaded\) return;/, '读之前先看旗标')
+})

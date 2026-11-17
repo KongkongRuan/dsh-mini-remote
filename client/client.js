@@ -103,6 +103,9 @@ window.__ModuleLoader__.load({
 
     // 颜色走 DSH 主题变量（真名前缀是 --dsw-alias-，深浅色自动跟随）。
     // 每个变量都带一个浅色兜底值，变量缺失时界面仍然可读。
+    // 保存过的选项只读一次。放在模块作用域：放进渲染函数里会每次渲染都重置，
+    // 变成每渲染一次就去问一遍服务端（2026-11-17 修正）。
+    var soulPrefsLoaded = false;
     var styles = {
       card: { background: 'var(--dsw-alias-bg-layer-1,#fff)', border: '1px solid var(--dsw-alias-border-l2,#e5e7eb)', borderRadius: 12, padding: '20px 24px', width: '100%', maxWidth: 640, boxSizing: 'border-box' },
       title: { fontWeight: 600, fontSize: 16, lineHeight: 1.4, marginBottom: 4 },
@@ -2878,7 +2881,6 @@ window.__ModuleLoader__.load({
        * 在普通函数里调钩子会让钩子数量随渲染变化，直接把设置页挂成白屏
        * （2026-11-17 真机就是这么白的）。改成"第一次展开时读一次"。
        */
-      var soulPrefsLoaded = false;
       var loadPrefs = function () {
         if (soulPrefsLoaded) return;
         soulPrefsLoaded = true;
@@ -2938,6 +2940,8 @@ window.__ModuleLoader__.load({
             next[field] = body.path;
             next.picker = null;
             patch(next);
+            // 选完要**存住**：手打的路径有 onChange 兜着，弹框选的可没有。
+            if (field === 'syncDir') setTimeout(savePrefs, 0);
             return;
           }
           if (body.kind === 'browse') {
