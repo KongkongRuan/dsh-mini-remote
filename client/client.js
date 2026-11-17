@@ -2835,14 +2835,7 @@ window.__ModuleLoader__.load({
       };
 
       var pathMapOf = function () {
-        /** 这一段自己的错误节点；不属于这一段就返回 null。 */
-      var errorNode = function (section) {
-        if (!soul.error || soul.errorAt !== section) return null;
-        return h('div', { key: 'err-' + section, style: Object.assign({}, styles.error, { marginTop: 8 }) }, soul.error);
-      };
-
-      var rows = [];
-      for (var i = 1; i <= 3; i += 1) {
+        for (var i = 1; i <= 3; i += 1) {
           var from = (soul['from' + i] || '').trim();
           var to = (soul['to' + i] || '').trim();
           if (from && to) rows.push({ oldPrefix: from, newPrefix: to });
@@ -3065,6 +3058,12 @@ window.__ModuleLoader__.load({
           }),
           text,
         );
+      };
+
+      /** 这一段自己的错误节点；不属于这一段就返回 null。 */
+      var errorNode = function (section) {
+        if (!soul.error || soul.errorAt !== section) return null;
+        return h('div', { key: 'err-' + section, style: Object.assign({}, styles.error, { marginTop: 8 }) }, soul.error);
       };
 
       var rows = [];
