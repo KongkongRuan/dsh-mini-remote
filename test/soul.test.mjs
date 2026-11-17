@@ -1380,9 +1380,11 @@ test('设置页：弹框选中的目录也要存住，且"只读一次"的旗标
   const start = client.indexOf('function soulBlock(')
   const end = client.indexOf('function collapsibleSub(')
   const body = client.slice(start, end)
-  assert.equal(body.includes('var soulPrefsLoaded'), false, '旗标不能放在面板函数里')
-  assert.match(client.slice(0, start), /var soulPrefsLoaded = false;/, '应在模块作用域定义一次')
-  assert.match(body, /if \(soulPrefsLoaded\) return;/, '读之前先看旗标')
+  // 旗标必须跟着"这一次挂载"走：模块级旗标在关掉设置页再打开时不会重置，
+  // 面板重新挂载后状态回到默认值却不去读，用户看到的永远是默认值。
+  assert.equal(client.includes('soulPrefsLoaded'), false, '不能再用模块级旗标')
+  assert.match(client, /prefsLoaded: false/, '旗标放在状态里')
+  assert.match(body, /if \(soul\.prefsLoaded\) return;/, '读之前先看状态里的旗标')
 })
 
 test('选项记忆：同一条路由能读也能写（不要注册两次，后注册的会顶掉前一个）', async () => {
@@ -1441,8 +1443,8 @@ test('设置页：选项要能存住，而且存的是"这次改完的值"', asy
 test('设置页：读保存值失败时要能重试，不能永远停在默认值', async () => {
   const { readFileSync } = await import('node:fs')
   const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
-  assert.match(client, /if \(!r\.body \|\| r\.body\.ok !== true\) return;/, '读失败不算读过')
-  assert.match(client, /soulPrefsLoaded = true;/, '读到了才记旗标')
+  assert.match(client, /if \(!r\.body \|\| r\.body\.ok !== true\) return;/, '读失败就保持原样')
+  assert.match(client, /prefsLoaded: true/, '开始读就标记')
 })
 
 test('设置页：读保存值的那一拍必须包成函数，否则求值到 undefined', async () => {

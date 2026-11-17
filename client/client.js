@@ -103,9 +103,6 @@ window.__ModuleLoader__.load({
 
     // 颜色走 DSH 主题变量（真名前缀是 --dsw-alias-，深浅色自动跟随）。
     // 每个变量都带一个浅色兜底值，变量缺失时界面仍然可读。
-    // 保存过的选项只读一次。放在模块作用域：放进渲染函数里会每次渲染都重置，
-    // 变成每渲染一次就去问一遍服务端（2026-11-17 修正）。
-    var soulPrefsLoaded = false;
     var styles = {
       card: { background: 'var(--dsw-alias-bg-layer-1,#fff)', border: '1px solid var(--dsw-alias-border-l2,#e5e7eb)', borderRadius: 12, padding: '20px 24px', width: '100%', maxWidth: 640, boxSizing: 'border-box' },
       title: { fontWeight: 600, fontSize: 16, lineHeight: 1.4, marginBottom: 4 },
@@ -613,6 +610,7 @@ window.__ModuleLoader__.load({
         syncDir: '',
         syncStage: null,
         errorAt: null,
+        prefsLoaded: false,
         prefsStatus: '',
         sessions: 'none',
         attachments: false,
@@ -2885,12 +2883,12 @@ window.__ModuleLoader__.load({
        * （2026-11-17 真机就是这么白的）。改成"第一次展开时读一次"。
        */
       var loadPrefs = function () {
-        if (soulPrefsLoaded) return;
+        // 旗标放**状态里**：模块级旗标在"关掉设置页再打开"时不会重置，
+        // 面板重新挂载后状态回到默认值，却因为旗标还亮着而永远不去读（2026-11-17 真机症状）。
+        if (soul.prefsLoaded) return;
+        setSoul(function (prev) { return Object.assign({}, prev, { prefsLoaded: true }); });
         getJson('/mini-remote/soul/prefs').then(function (r) {
-          // 只有真的读到了才记"读过"。读失败（宿主还没重启之类）就把旗标留着，
-          // 下次展开还能再试一次——否则会永远停在默认值上。
           if (!r.body || r.body.ok !== true) return;
-          soulPrefsLoaded = true;
           var prefs = r.body.prefs || {};
           setSoul(function (prev) {
             var next = Object.assign({}, prev);
