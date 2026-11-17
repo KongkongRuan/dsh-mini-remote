@@ -2808,7 +2808,13 @@ window.__ModuleLoader__.load({
           .then(function (r) {
             patch({ busy: '' });
             if (!r.body || r.body.ok === false) {
-              patch({ error: (r.body && (r.body.error || r.body.verdict)) || ('请求失败（HTTP ' + r.status + '）') });
+              // 404 几乎总是同一个原因：宿主插件还是旧进程，新路由没注册上。
+              // 这时候说"重启一次 DSH"比说"请求失败"有用得多。
+              patch({
+                error: r.status === 404
+                  ? '这个功能需要新版本的插件接口，但当前宿主还是旧的：请重启一次 DSH 再试。'
+                  : (r.body && (r.body.error || r.body.verdict)) || ('请求失败（HTTP ' + r.status + '）'),
+              });
               return null;
             }
             return r.body;
@@ -2879,7 +2885,11 @@ window.__ModuleLoader__.load({
             openPicker();
             return;
           }
-          patch({ error: body.reason || '没能打开选择框，请手动填目录。' });
+          patch({
+            error: r.status === 404
+              ? '这个功能需要新版本的插件接口，但当前宿主还是旧的：请重启一次 DSH 再试。'
+              : (body.reason || '没能打开选择框，请手动填目录。'),
+          });
         }).catch(function (err) {
           patch({ busy: '', error: (err && err.message) || String(err) });
         });

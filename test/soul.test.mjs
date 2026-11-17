@@ -1042,3 +1042,10 @@ test('选包：优先弹系统文件夹对话框，弹不出来才退回列表',
   assert.match(client, /pick-folder/, '要打这条接口')
   assert.match(client, /body\.kind === 'browse'/, '宿主只能给列表时要退回')
 })
+
+test('设置页：接口 404 时要提示"重启 DSH"，别让人以为功能坏了', async () => {
+  const { readFileSync } = await import('node:fs')
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+  assert.match(client, /请重启一次 DSH 再试/)
+  assert.equal((client.match(/请重启一次 DSH 再试/g) || []).length >= 2, true, '执行与选择两条路都要说')
+})
