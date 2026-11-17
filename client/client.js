@@ -607,6 +607,8 @@ window.__ModuleLoader__.load({
       var setSoulGroupOpen = soulGroupState[1];
       var soulState = useState({
         packDir: '',
+        syncDir: '',
+        syncStage: null,
         sessions: 'none',
         attachments: false,
         pluginData: false,
@@ -2873,12 +2875,20 @@ window.__ModuleLoader__.load({
        * 只有宿主说它只能给列表（例如 DSH 跑在远端）时，才退回网页里的内联列表。
        */
       var chooseFolder = function () {
+        pickInto('packDir');
+      };
+
+      /** 弹系统框选一个目录，选到的路径写进 state 里的哪个字段。 */
+      var pickInto = function (field) {
         patch({ busy: '选择中', error: null });
         post('/mini-remote/soul/pick-folder', {}).then(function (r) {
           patch({ busy: '' });
           var body = r.body || {};
           if (body.ok && body.path) {
-            patch({ packDir: body.path, picker: null });
+            var next = {};
+            next[field] = body.path;
+            next.picker = null;
+            patch(next);
             return;
           }
           if (body.kind === 'browse') {
@@ -2976,6 +2986,19 @@ window.__ModuleLoader__.load({
         return h('div', { key: 'picker', style: styles.subGroup }, rows);
       };
 
+      var doSyncStatus = function () {
+        run('比对中', '/mini-remote/soul/sync/status', { targetDir: soul.syncDir, packDir: soul.packDir })
+          .then(function (body) { if (body) patch({ syncStage: { kind: 'status', body: body } }); });
+      };
+      var doSyncPush = function () {
+        run('推送中', '/mini-remote/soul/sync/push', { targetDir: soul.syncDir, packDir: soul.packDir })
+          .then(function (body) { if (body) patch({ syncStage: { kind: 'push', body: body } }); });
+      };
+      var doSyncPull = function () {
+        run('拉取中', '/mini-remote/soul/sync/pull', { targetDir: soul.syncDir })
+          .then(function (body) { if (body) patch({ syncStage: { kind: 'pull', body: body } }); });
+      };
+
       var doExport = function () {
         run('导出中', '/mini-remote/soul/export', {
           sessions: soul.sessions,
@@ -3036,6 +3059,7 @@ window.__ModuleLoader__.load({
       var stage = soul.stage;
       var exportRows = [];
       var importRows = [];
+      var syncRows = [];
       if (stage && stage.kind === 'export') {
         var b = stage.body;
         exportRows.push(h('div', { key: 'r-export', style: styles.block },
@@ -3049,6 +3073,37 @@ window.__ModuleLoader__.load({
             : null,
         ));
       }
+      var syncStage = soul.syncStage;
+      if (syncStage && syncStage.kind === 'status') {
+        var st = syncStage.body;
+        var remote = st.remote || {};
+        syncRows.push(h('div', { key: 'r-sync-status', style: styles.block },
+          h('div', { style: styles.entryTitle }, '远端现状'),
+          h('div', { style: styles.muted }, '共 ' + (remote.count || 0) + ' 份；最新一份：' + ((remote.latest && remote.latest.createdAt) || '（还没有）')),
+          st.local && st.local.ok
+            ? h('div', { style: st.local.same ? styles.muted : styles.warn },
+                st.local.same ? '本地这份和远端一致，不需要推。' : ('本地和远端不一致：' + (st.local.reason || '') + '。需要的话点「推送」。'))
+            : null,
+        ));
+      }
+      if (syncStage && syncStage.kind === 'push') {
+        var pu = syncStage.body;
+        syncRows.push(h('div', { key: 'r-sync-push', style: styles.block },
+          h('div', { style: styles.entryTitle }, pu.skipped ? '远端已是最新' : '推送完成'),
+          h('div', { style: styles.muted }, pu.skipped ? (pu.reason || '') : ('新增一份：' + (pu.id || '') + '，约 ' + Math.round((pu.bytes || 0) / 1024) + ' KB')),
+          (pu.dropped && pu.dropped.length) ? h('div', { style: styles.muted }, '按保留份数清掉了 ' + pu.dropped.length + ' 份旧快照：' + pu.dropped.join('、')) : null,
+        ));
+      }
+      if (syncStage && syncStage.kind === 'pull') {
+        var pl2 = syncStage.body;
+        syncRows.push(h('div', { key: 'r-sync-pull', style: styles.block },
+          h('div', { style: styles.entryTitle }, '拉取完成'),
+          h('div', { style: styles.muted }, '落在：'),
+          dirLink(pl2.dir),
+          h('div', { style: styles.muted }, '接下来把这个目录填进上面的包目录，点「体检」看看里面是什么。'),
+        ));
+      }
+
       if (stage && stage.kind === 'inspect') {
         var ins = stage.body;
         importRows.push(h('div', { key: 'r-inspect', style: styles.block },
@@ -3215,6 +3270,28 @@ window.__ModuleLoader__.load({
           );
         }),
         importRows.length ? h('div', { key: 'soul-import-result', style: styles.block }, importRows) : null,
+      ));
+
+      // ── 同步：本地/网盘目录 ──
+      rows.push(h('div', { key: 'soul-sync', style: styles.block },
+        h('div', { style: styles.entryTitle }, '同步到目录（网盘也行）'),
+        h('div', { style: styles.muted }, '把一个目录当同步盘用：OneDrive、坚果云这类会自己带到其它电脑。推上去的是完整灵魂包，拉下来落在 DSH 自己的目录里，不会覆盖现有包。'),
+        h('div', { style: { marginTop: 8, display: 'flex', gap: 8, alignItems: 'center' } },
+          h('input', {
+            value: soul.syncDir || '',
+            placeholder: '目标目录，例如 D:\\soul-sync 或你的网盘同步文件夹',
+            onChange: function (e) { patch({ syncDir: e.target.value }); },
+            style: styles.input,
+          }),
+          h('button', { type: 'button', onClick: function () { pickInto('syncDir'); }, style: Object.assign({}, styles.btn, { flex: 'none' }) }, '选择…'),
+        ),
+        h('div', { style: { marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' } },
+          h('button', { type: 'button', disabled: Boolean(soul.busy) || !soul.syncDir, onClick: doSyncStatus, style: styles.btn }, '比对'),
+          h('button', { type: 'button', disabled: Boolean(soul.busy) || !soul.syncDir || !soul.packDir, onClick: doSyncPush, style: styles.btnPrimary }, '推送'),
+          h('button', { type: 'button', disabled: Boolean(soul.busy) || !soul.syncDir, onClick: doSyncPull, style: styles.btn }, '拉取最新'),
+        ),
+        h('div', { style: styles.muted }, '推送用的是上面「导出」产出的那份包；先导出，再推送。默认只保留最近 5 份，旧的自动清掉。'),
+        syncRows.length ? h('div', { key: 'soul-sync-result', style: styles.block }, syncRows) : null,
       ));
 
 

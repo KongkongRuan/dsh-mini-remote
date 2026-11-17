@@ -1170,3 +1170,86 @@ test('私有数据：导出时排除 excludeRel 里的子目录，写回时不�
     assert.equal(await readFile(join(homeDir, '.demo/keep.json'), 'utf8'), '{"keep":2}', '本地那份要保住')
   })
 })
+
+// ---------------------------------------------------------------------------
+// P6：同步通道（本地 / 网盘目录）
+// ---------------------------------------------------------------------------
+
+import { pushToDir, pullFromDir, compareWithDir, inspectTarget } from '../lib/soul/dir-sync.js'
+
+test('同步：推上去之后远端有索引，内容一致就跳过不重复推', async () => {
+  await withTemp(async (root) => {
+    const pack = join(root, 'pack')
+    await makePack(pack, { bundles: [], namespaces: {} })
+    const target = join(root, 'sync')
+
+    const first = await pushToDir({ packDir: pack, targetDir: target })
+    assert.equal(first.ok, true, first.reason)
+    assert.ok(first.id, '要给这份快照一个 id')
+
+    const status = await inspectTarget(target)
+    assert.equal(status.count, 1)
+    assert.equal(status.latest.id, first.id)
+
+    // 内容没变：再推一次应当跳过
+    const second = await pushToDir({ packDir: pack, targetDir: target })
+    assert.equal(second.ok, true)
+    assert.equal(second.skipped, true, '同一份内容不该重复推')
+    assert.equal((await inspectTarget(target)).count, 1)
+  })
+})
+
+test('同步：比对能认出"两边不一样"，并说明原因', async () => {
+  await withTemp(async (root) => {
+    const pack = join(root, 'pack')
+    await makePack(pack, { bundles: [], namespaces: {} })
+    const target = join(root, 'sync')
+    await pushToDir({ packDir: pack, targetDir: target })
+
+    const same = await compareWithDir({ packDir: pack, targetDir: target })
+    assert.equal(same.same, true)
+
+    // 改动包里的一个文件，指纹就该变
+    await writeFile(join(pack, 'custom/AGENTS.md'), '# 改过了\n', 'utf8')
+    const { finalizePack } = await import('../lib/soul/pack.js')
+    await finalizePack(pack, { kind: 'soul-export', source: { profile: 'web', dshVersion: '0.2.2-rc.3' }, includes: {}, counts: {} })
+    const diff = await compareWithDir({ packDir: pack, targetDir: target })
+    assert.equal(diff.same, false)
+    assert.match(diff.reason, /不一样/)
+  })
+})
+
+test('同步：拉下来会落在 DSH 自己的目录里，并校验通过', async () => {
+  await withTemp(async (root) => {
+    const home = join(root, 'home')
+    const pack = join(root, 'pack')
+    await makePack(pack, { bundles: [], namespaces: {} })
+    const target = join(root, 'sync')
+    const pushed = await pushToDir({ packDir: pack, targetDir: target })
+
+    const pulled = await pullFromDir({ targetDir: target, homeDir: home })
+    assert.equal(pulled.ok, true, pulled.reason)
+    assert.equal(pulled.id, pushed.id)
+    assert.ok(pulled.dir.includes('pulled-'), pulled.dir)
+    const { existsSync } = await import('node:fs')
+    assert.equal(existsSync(join(pulled.dir, 'manifest.json')), true)
+  })
+})
+
+test('同步：只保留最近若干份，旧的连目录一起清掉', async () => {
+  await withTemp(async (root) => {
+    const target = join(root, 'sync')
+    const { existsSync } = await import('node:fs')
+    let lastId = ''
+    for (let i = 0; i < 4; i += 1) {
+      const pack = join(root, `pack${i}`)
+      await makePack(pack, { bundles: [], namespaces: { ['ns' + i]: { value: { i }, revision: 1 } } })
+      const res = await pushToDir({ packDir: pack, targetDir: target, keep: 2 })
+      assert.equal(res.ok, true, res.reason)
+      lastId = res.id
+    }
+    const status = await inspectTarget(target)
+    assert.equal(status.count, 2, '只该留两份')
+    assert.equal(status.latest.id, lastId)
+  })
+})

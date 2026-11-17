@@ -4403,10 +4403,11 @@ test('自检：该回答的那几样一样不缺（版本 / 进程 / 接口 / �
     '/mini-remote/soul/export', '/mini-remote/soul/inspect', '/mini-remote/soul/plan',
     '/mini-remote/soul/apply', '/mini-remote/soul/rollback', '/mini-remote/soul/open-folder',
     '/mini-remote/soul/browse-roots', '/mini-remote/soul/browse-list', '/mini-remote/soul/pick-folder',
+    '/mini-remote/soul/sync/status', '/mini-remote/soul/sync/push', '/mini-remote/soul/sync/pull',
   ]) {
     assert.ok(paths.includes(want), `清单里少了 ${want}`)
   }
-  assert.equal(body.routes.length, 48, '四十八条注册就报四十八条（清单和注册同一处发生）')
+  assert.equal(body.routes.length, 51, '五十一条注册就报五十一条（清单和注册同一处发生）')
   assert.ok(body.routes.every((one) => one.mounted === true), '刚起来的这一份，条条都该是"在"')
 
   // ④ 开关：默认关
