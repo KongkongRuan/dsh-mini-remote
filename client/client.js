@@ -3143,6 +3143,11 @@ window.__ModuleLoader__.load({
           if (body) patch({ stage: { kind: 'inspect', body: body }, plan: null, error: null });
         });
       };
+      /** 「执行注入」的第一步：只算清单，不写盘。清单出来之后再让人确认。 */
+      var doPrepareApply = function () {
+        if (!needPack('import')) return;
+        doPlan();
+      };
       var doPlan = function () {
         if (!needPack('import')) return;
         run('生成计划', '/mini-remote/soul/plan', { packDir: soul.packDir, pathMap: pathMapOf() }).then(function (body) {
@@ -3255,8 +3260,8 @@ window.__ModuleLoader__.load({
             : null,
           // 下一步直接给按钮：只读那一步走完，人应该知道接下来点哪儿。
           h('div', { style: { marginTop: 10 } },
-            h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doPlan, style: styles.btn },
-              soul.busy === '生成计划' ? '生成中…' : '下一步：生成计划'),
+            h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doPrepareApply, style: styles.btnPrimary },
+              soul.busy === '生成计划' ? '正在算…' : '下一步：执行注入'),
           ),
         ));
       }
@@ -3270,14 +3275,16 @@ window.__ModuleLoader__.load({
                 return '· [' + one.action + '] ' + (one.what || '') + ' — ' + (one.detail || '');
               }).join('\n'))
             : null,
-          soul.confirmApply
-            ? h('div', { style: { marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' } },
-                h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doApply, style: styles.btnPrimary }, soul.busy === '执行中' ? '执行中…' : '确认执行'),
-                h('button', { type: 'button', onClick: function () { patch({ confirmApply: false }); }, style: styles.btn }, '取消'),
-              )
-            : h('div', { style: { marginTop: 10 } },
-                h('button', { type: 'button', onClick: function () { patch({ confirmApply: true }); }, style: styles.btnPrimary }, '执行注入…'),
-              ),
+          // 清单出来了，就地问一句：确认执行还是取消。不再让人回头找按钮。
+          h('div', { style: { marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' } },
+            h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doApply, style: styles.btnPrimary },
+              soul.busy === '执行中' ? '执行中…' : '确认执行'),
+            h('button', {
+              type: 'button',
+              onClick: function () { patch({ stage: null, confirmApply: false, error: null, errorAt: null }); },
+              style: styles.btn,
+            }, '取消'),
+          ),
           h('div', { style: styles.muted }, '执行会改配置、装插件、替换补丁与文件。执行前会自动快照。'),
         ));
       }
@@ -3396,12 +3403,12 @@ window.__ModuleLoader__.load({
           ),
           pickerBlock(),
         ),
-        h('div', { style: styles.muted }, '顺序：体检 → 生成计划 →（计划出来后在下面点「执行注入」）。前两步只读，不写任何东西。'),
+        h('div', { style: styles.muted }, '先「体检」看看包里有什么；「执行注入」会先列出要做什么，确认后才真的写。'),
         h('div', { style: { marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' } },
           h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doInspect, style: styles.btn },
             soul.busy === '体检中' ? '体检中…' : '体检（只读）'),
-          h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doPlan, style: styles.btn },
-            soul.busy === '生成计划' ? '生成中…' : '生成计划（只读）'),
+          h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doPrepareApply, style: styles.btnPrimary },
+            soul.busy === '生成计划' ? '正在算…' : '执行注入'),
         ),
         h('div', { style: { marginTop: 8 } },
           h('input', {

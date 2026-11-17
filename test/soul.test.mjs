@@ -1538,3 +1538,19 @@ test('体检：本机版本读不出来时不算"版本不同"，核心包也不
     assert.equal(ins.target.missingBundles.includes('@deepseek-ai/dsh-base'), false, '依赖里有的核心包不算缺失')
   })
 })
+
+test('设置页：执行注入要自带清单，不再要求先点"生成计划"', async () => {
+  const { readFileSync } = await import('node:fs')
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+
+  // 导入区只有两个按钮：体检 + 执行注入（主按钮）
+  assert.match(client, /onClick: doPrepareApply, style: styles\.btnPrimary/)
+  assert.equal(client.includes("'生成计划（只读）'"), false, '不该再单列"生成计划"这一步')
+
+  // 清单出来后就地确认
+  assert.match(client, /onClick: doApply, style: styles\.btnPrimary/)
+  assert.match(client, /patch\(\{ stage: null, confirmApply: false, error: null, errorAt: null \}\)/, '要能取消')
+
+  // "先生成计划再执行"的提示已换掉
+  assert.equal(client.includes('顺序：体检 → 生成计划'), false)
+})
