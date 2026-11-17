@@ -9,7 +9,7 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
@@ -3348,4 +3348,34 @@ test('没传 tree 时执行类接口如实说「没这个能力」，不是假�
     { sessionId: 's' })
   assert.equal(arc.status, 503)
   assert.match((await arc.json()).error, /没提供工作区服务/)
+})
+
+test('附件图片：没有扩展名也要认得出来（会话里的图就是这种）', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const home = mkdtempSync(join(tmpdir(), 'dsh-img-'))
+  const previous = process.env.DSH_HOME
+  try {
+    // 造一个和真实存储同构的对象：objects/<前两位>/<sha256>，**没有扩展名**
+    const dir = join(home, 'attachments', 'v1', 'objects', 'ab')
+    mkdirSync(dir, { recursive: true })
+    const png = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010806000000', 'hex')
+    const file = join(dir, 'ab'.padEnd(64, '0'))
+    writeFileSync(file, png)
+    process.env.DSH_HOME = home
+
+    const hit = readImage(file)
+    assert.ok(hit, '附件目录里的无扩展名图片要能读出来')
+    assert.equal(hit.type, 'image/png')
+
+    // 附件目录之外的无扩展名文件照旧拒绝（不因为这条放宽就到处乱发）
+    const outside = join(home, 'elsewhere.bin')
+    mkdirSync(dirname(outside), { recursive: true })
+    writeFileSync(outside, png)
+    assert.equal(readImage(outside), null, '附件目录之外不按内容认类型')
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    rmSync(home, { recursive: true, force: true })
+  }
 })
