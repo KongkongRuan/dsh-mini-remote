@@ -1,6 +1,41 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
 }
+
+/**
+ * 调试包也用正式密钥签（2026-11-17）。
+ *
+ * 为什么：给手机装的是"调试构建 + 正式密钥重签"的副本，而构建目录里那份是 AGP 用
+ * Android Debug 密钥签的。App 内「检查更新」在开发版按内容指纹比，两份必然不同，
+ * 于是天天报"有新版本"，真点更新又会因签名不一致安装失败。
+ *
+ * 密钥与密码**不进仓库**：从环境变量读，或读仓库外的 `../../keys/signing.properties`
+ * （仓库根是 `I:\极简遥控器\极简遥控器`，钥匙在 `I:\极简遥控器\keys`）。都没有就退回
+ * AGP 默认的调试签名，不要把构建卡住——但那种包不能覆盖安装到正式签名的 App 上。
+ */
+val signingProps = Properties()
+run {
+    val candidates = listOfNotNull(
+        providers.environmentVariable("DSH_SIGNING_PROPS").orNull?.let { rootProject.file(it) },
+        rootProject.file("../../keys/signing.properties"),
+    )
+    val found = candidates.firstOrNull { it.isFile }
+    if (found != null) {
+        // 必须按 UTF-8 读：Properties.load(InputStream) 默认 ISO-8859-1，
+        // 而我们的密钥路径里有中文目录名，按默认编码读会变成乱码（2026-11-17 实测）。
+        found.inputStream().reader(Charsets.UTF_8).use { reader -> signingProps.load(reader) }
+    }
+}
+fun signProp(env: String, key: String): String? =
+    providers.environmentVariable(env).orNull ?: signingProps.getProperty(key)?.takeIf { it.isNotBlank() }
+
+val ksFile = signProp("DSH_KS_PATH", "storeFile")
+val ksPassword = signProp("DSH_KS_PASSWORD", "storePassword")
+val ksAlias = signProp("DSH_KS_ALIAS", "keyAlias") ?: "dsh-mini-remote"
+val ksKeyPassword = signProp("DSH_KS_KEY_PASSWORD", "keyPassword") ?: ksPassword
+val hasDevSigning = ksFile != null && ksPassword != null && file(ksFile).isFile
 
 android {
     namespace = "com.dsh.miniremote"
@@ -63,7 +98,24 @@ android {
         buildConfig = true
     }
 
+    signingConfigs {
+        // 只在拿到正式密钥时才建；没有就退回 AGP 默认调试签名，别把构建卡住。
+        if (hasDevSigning) {
+            create("devsig") {
+                storeFile = file(ksFile!!)
+                storePassword = ksPassword
+                keyAlias = ksAlias
+                keyPassword = ksKeyPassword
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            // 调试包也走正式密钥：这样它就是"能被系统认可、能覆盖安装"的那一份，
+            // App 内的开发版更新（按内容指纹比）才比得准（2026-11-17）。
+            if (hasDevSigning) signingConfig = signingConfigs.getByName("devsig")
+        }
         release {
             isMinifyEnabled = false
         }

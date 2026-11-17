@@ -651,7 +651,19 @@ public final class MainActivity extends Activity {
                 + "#miniBridgeError{margin:4px 0 8px !important;padding:6px 8px !important;"
                 + "border-radius:6px !important;color:#b42318 !important;background:#fff1f0 !important;"
                 + "line-height:1.5 !important;white-space:normal !important;}"
-                + "#miniBridgeError[hidden]{display:none !important;}";
+                + "#miniBridgeError[hidden]{display:none !important;}"
+                // 「手机操控」分组（2026-11-17 用户要求）：把桥、屏幕操作、终端、执行命令、
+                // 工作文件夹、全盘模式、自检七行收进一个可折叠的组，默认收起。
+                + "#miniPhoneCtlHead{display:flex !important;align-items:center !important;gap:8px !important;"
+                + "cursor:pointer !important;user-select:none !important;}"
+                + "#miniPhoneCtlState{margin-left:auto !important;margin-right:8px !important;font-size:12px !important;"
+                + "font-weight:400 !important;color:var(--muted,#8a8a8a) !important;white-space:nowrap !important;}"
+                + "#miniPhoneCtlChev{flex:0 0 18px !important;width:18px !important;height:18px !important;"
+                + "display:flex !important;align-items:center !important;justify-content:center !important;"
+                + "color:var(--muted,#8b93a1) !important;transition:transform .15s !important;}"
+                + "#miniPhoneCtlHead[aria-expanded=\"true\"] #miniPhoneCtlChev{transform:rotate(90deg) !important;}"
+                + "#miniPhoneCtlBody{margin-top:6px !important;}"
+                + "#miniPhoneCtlBody[hidden]{display:none !important;}";
         String js = "(function(){"
                 + "if(document.getElementById('mini-app-only-style'))return;"
                 + "var s=document.createElement('style');"
@@ -822,6 +834,22 @@ public final class MainActivity extends Activity {
 
             + "</div>"
             + "</div></div>';"
+            // 「手机操控」：把下面七行收进一个可折叠的组（2026-11-17 用户要求）。
+            // 默认收起——平时只看见一行标题，要看细节再点开。标题右边带一句桥的状态，
+            // 收起时不至于完全不知道"电脑现在能不能用这台手机"。
+            + "var phoneCtl=document.createElement('div');"
+            + "phoneCtl.id='miniPhoneCtl';phoneCtl.className='row';"
+            + "phoneCtl.innerHTML='<div style=\"flex:1;min-width:0\">"
+            + "<div id=\"miniPhoneCtlHead\" class=\"label\" role=\"button\" tabindex=\"0\""
+            + " aria-expanded=\"false\" aria-controls=\"miniPhoneCtlBody\">"
+            + "<span>手机操控</span>"
+            + "<span id=\"miniPhoneCtlState\"></span>"
+            + "<span id=\"miniPhoneCtlChev\" aria-hidden=\"true\">"
+            + "<svg viewBox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\""
+            + " stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\">"
+            + "<path d=\"M9 5l7 7-7 7\"/></svg></span></div>"
+            + "<div id=\"miniPhoneCtlBody\" hidden></div>"
+            + "</div>';"
             // 「手机终端」「工作文件夹」和「屏幕操作」平级：三件事各管一摊，不该藏在谁里面（2026-11-12）。
             + "var termuxRow=document.createElement('div');"
             + "termuxRow.id='miniTermuxRow';termuxRow.className='row';termuxRow.style.marginTop='10px';"
@@ -855,7 +883,10 @@ public final class MainActivity extends Activity {
             + "var conn=document.getElementById('miniConnBlock');"
             + "if(!conn){setTimeout(place,500);return;}"
             + "if(err.previousElementSibling!==block){"
-            + "conn.insertAdjacentElement('afterend',block);"
+            // 分组容器插在「连接」下面，七行都进它的 body（2026-11-17）。
+            + "conn.insertAdjacentElement('afterend',phoneCtl);"
+            + "var pbody=document.getElementById('miniPhoneCtlBody');"
+            + "pbody.appendChild(block);"
             + "block.insertAdjacentElement('afterend',err);"
             + "err.insertAdjacentElement('afterend',a11y);"
             + "var a11yBody=document.getElementById('miniA11yBody');"
@@ -870,27 +901,31 @@ public final class MainActivity extends Activity {
             + "</div><div style=\"flex:0 0 auto\">"
             + "<button class=\"btn\" id=\"miniCheckGo\">检查</button></div>';"
             + "allFilesRow.insertAdjacentElement('afterend',checkRow);"
-            // 「手机执行命令（免 Termux）」：自连 ADB 的正式引导（2026-11-15）。
+            // 「手机执行命令（无线调试）」：自连 ADB 的正式引导（2026-11-15）。
+            // 2026-11-17 用户改名：原来叫「免 Termux」，只说结果、没说清靠什么，
+            // 还容易和下面「手机终端」那一行混起来。
             // 未配对时一行说清"为什么/做什么/多久"；已配对显示"已就绪"，不再催促。
             // 配对过程有进度：等待端口→看到端口→正在配对→成功/失败，失败给下一步。
             + "var adbRow=document.createElement('div');"
             + "adbRow.id='miniAdbRow';adbRow.className='row';adbRow.style.marginTop='10px';"
             + "adbRow.innerHTML='<div style=\"flex:1;min-width:0\">"
-            + "<div class=\"label\" id=\"miniAdbLabel\">手机执行命令（免 Termux）</div>"
+            + "<div class=\"label\" id=\"miniAdbLabel\">手机执行命令（无线调试）</div>"
             + "<div id=\"miniAdbState\" class=\"hint\">电脑让手机跑命令时，不必安装 Termux。配对一次即可，约 1 分钟。</div>"
             // 普通人最容易卡在"为什么要去开发者选项里开无线调试"——一句话说清（2026-11-15）。
             + "<div id=\"miniAdbWhy\" class=\"hint\" style=\"margin-top:2px\">"
             + "为什么要在开发者选项里开无线调试：那是手机自己连自己的唯一通路，不用电脑、不用数据线。</div>"
             + "</div><div style=\"flex:0 0 auto\">"
             + "<button class=\"btn\" id=\"miniAdbGo\">开始配对</button></div>';"
-            + "checkRow.insertAdjacentElement('afterend',adbRow);"
+            // 顺序（2026-11-17 用户）：执行命令紧跟在「手机终端」下面——
+            // 两行都在讲"手机上怎么跑命令"，放一起才读得顺；工作文件夹那几行往后排。
+            + "termuxRow.insertAdjacentElement('afterend',adbRow);"
             + "var adbGo=document.getElementById('miniAdbGo');"
             + "var adbLabel=document.getElementById('miniAdbLabel');"
             + "var adbState=document.getElementById('miniAdbState');"
             + "var adbWhy=document.getElementById('miniAdbWhy');"
             // 已配对：显示「已就绪」；无线调试没开时说明会自动退回 Termux。
             + "function paintAdbPaired(connectPort){"
-            + "adbLabel.textContent='手机执行命令（免 Termux）';"
+            + "adbLabel.textContent='手机执行命令（无线调试）';"
             + "if(connectPort){"
             + "adbState.textContent='已就绪。';"
             + "if(adbWhy)adbWhy.hidden=true;"
@@ -902,14 +937,14 @@ public final class MainActivity extends Activity {
             + "}"
             // 未配对：恢复引导文案。
             + "function paintAdbIdle(){"
-            + "adbLabel.textContent='手机执行命令（免 Termux）';"
+            + "adbLabel.textContent='手机执行命令（无线调试）';"
             + "adbState.textContent='电脑让手机跑命令时，不必安装 Termux。配对一次即可，约 1 分钟。';"
             + "adbGo.textContent='开始配对';"
             + "adbGo.disabled=false;"
             + "}"
             // 配对中：按 phase 显示进度，失败给下一步。
             + "function paintAdbRunning(r){"
-            + "adbLabel.textContent='手机执行命令（免 Termux）';"
+            + "adbLabel.textContent='手机执行命令（无线调试）';"
             + "var msg=r.message||'';"
             + "if(r.phase==='waiting-port'){"
             + "adbState.textContent='第 1 步：去开发者选项里打开「使用配对码配对设备」。App 在后台等端口……';"
@@ -955,8 +990,27 @@ public final class MainActivity extends Activity {
             + "if(typeof paintWork==='function')paintWork();"
             + "}"
             + "place();"
-            // 这一行整块去掉了（2026-11-10）：不同手机的入口不一样，常驻提示等于让人自己猜；
-            // 改成"真的被系统拦住时"，由 phone_open 的返回直接告诉用户怎么做。
+            // 「手机操控」折叠开关（2026-11-17）：
+            // 记住这次会话里的展开状态（页面重载也还在），但 App 重开就回到收起——
+            // 所以存 sessionStorage，不用 localStorage：后者会跨重启一直记着。
+            + "function setPhoneCtlOpen(open){"
+            + "var b=document.getElementById('miniPhoneCtlBody');"
+            + "var h=document.getElementById('miniPhoneCtlHead');"
+            + "if(!b||!h)return;"
+            + "window.__miniPhoneCtlOpen=open;"
+            + "if(open){b.removeAttribute('hidden');}else{b.setAttribute('hidden','');}"
+            + "h.setAttribute('aria-expanded',open?'true':'false');"
+            + "try{sessionStorage.setItem('mini_phone_ctl_open',open?'1':'0');}catch(e){}"
+            + "}"
+            + "var phead=document.getElementById('miniPhoneCtlHead');"
+            + "if(phead&&!phead.__wired){phead.__wired=1;"
+            + "phead.addEventListener('click',function(){setPhoneCtlOpen(!window.__miniPhoneCtlOpen);});"
+            + "phead.addEventListener('keydown',function(e){"
+            + "if(e.key==='Enter'||e.key===' '){e.preventDefault();setPhoneCtlOpen(!window.__miniPhoneCtlOpen);}});"
+            + "}"
+            + "var savedOpen=false;"
+            + "try{savedOpen=sessionStorage.getItem('mini_phone_ctl_open')==='1';}catch(e){}"
+            + "setPhoneCtlOpen(savedOpen);"
             + "var btn=document.getElementById('miniBridgeBtn');"
             + "var hint=document.getElementById('miniBridgeHint');"
             + "function paint(s){"
@@ -967,6 +1021,9 @@ public final class MainActivity extends Activity {
             + "hint.textContent=armed"
             + "?(online?'已连接：电脑可以与这台手机收发指令':(fails>=2?'已开启，但还没连上电脑，正在自动重连':'正在连接电脑…'))"
             + ":'关着时，电脑看不到这台手机';"
+            // 收起时也要能看出电脑现在能不能用这台手机，所以在组标题上带一句（2026-11-17）。
+            + "var gs=document.getElementById('miniPhoneCtlState');"
+            + "if(gs)gs.textContent=armed?(online?'已连接':'连接中'):'未开启';"
             + "}"
             // 无障碍那一行：开着说清能力，关着给路径；任何情况都给一个去设置的入口
             + "function paintA11y(){"

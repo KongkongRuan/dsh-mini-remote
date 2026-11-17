@@ -26,7 +26,8 @@ test('ADB 配对引导行由 MainActivity 注入，不是页面写死', () => {
 })
 
 test('未配对文案分支在源码里', () => {
-  assert.match(activity, /手机执行命令（免 Termux）/, '标题要对')
+  assert.match(activity, /手机执行命令（无线调试）/, '标题要对：说清靠无线调试，不再用「免 Termux」')
+  assert.doesNotMatch(activity, /免 Termux）/, '标题里不该再出现「免 Termux」')
   assert.match(activity, /电脑让手机跑命令时，不必安装 Termux。配对一次即可，约 1 分钟。/, '未配对说明要对')
   assert.match(activity, /开始配对/, '按钮文字要对')
 })

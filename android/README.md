@@ -82,6 +82,49 @@ android/
 - 工作区在中文路径下，AGP 会拦一条“非 ASCII 路径”的警告；`gradle.properties` 里已经写了
   `android.overridePathCheck=true`，实测能出包。换到纯英文路径时这一行可以删掉。
 - SDK 与 Gradle 装在哪都行，只要 `ANDROID_HOME` 指对、`gradle.bat` 找得到。
+- **中文路径下构建原生库会偶发失败**：报 `ninja: error: FindFirstFileExA(...)`。删掉
+  `app/.cxx` 再构建即可；改过 `build.gradle.kts` 后如果发现你的改动没生效，也要先删它重来。
+
+### 签名：开发包也用正式密钥（2026-11-17 起）
+
+调试包现在**直接用正式发布密钥签名**，不再是 AGP 自动生成的 Android Debug 密钥。
+
+原因：给手机装的开发版是正式密钥签的，而构建目录里那份原来是调试密钥签的。App 内
+「检查更新」在开发版按内容指纹比对，两份必然不同——于是天天提示“有新版本”，点了又
+因为签名不一致装不上。现在两边都是同一把密钥，指纹能对上，更新才真的可走。
+
+密钥和密码**不进仓库**，构建时按这个顺序找：
+
+1. 环境变量 `DSH_KS_PATH` / `DSH_KS_PASSWORD`（可选 `DSH_KS_ALIAS`、`DSH_KS_KEY_PASSWORD`）；
+2. 仓库外的 `I:\极简遥控器\keys\signing.properties`（也可用环境变量 `DSH_SIGNING_PROPS`
+   指定别的路径）。
+
+`signing.properties` 的样子：
+
+```properties
+storeFile=I:/极简遥控器/keys/dsh-mini-remote-release.p12
+storePassword=……
+keyAlias=dsh-mini-remote
+keyPassword=……
+```
+
+两个坑已经踩过，写在这里省得再踩：
+
+- 这个文件**必须按 UTF-8 读**。`Properties.load(InputStream)` 默认是 ISO-8859-1，密钥
+  路径里有中文目录名，按默认编码读会变成乱码，脚本只会安静地退回调试签名；
+- 找不到配置时**不报错**，只是退回 AGP 默认调试签名。判断有没有生效：
+
+  ```bat
+  apksigner.bat verify --print-certs app\build\outputs\apk\bridge\debug\app-bridge-debug.apk
+  ```
+
+  证书 SHA-256 应该是 `79:19:DB:26:…`（正式密钥），出现 `CN=Android Debug` 就是没生效。
+
+打包开发版时版本号怎么给（当前开发 0.1.1，只递增 `versionCode`）：
+
+```bat
+gradlew.bat assembleBridgeDebug -PappVersionName=0.1.1 -PappVersionCode=17
+```
 
 ## 明文 HTTP 的边界
 

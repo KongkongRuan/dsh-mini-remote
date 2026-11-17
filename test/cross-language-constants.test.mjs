@@ -97,6 +97,22 @@ test('全盘模式是默认关闭的实验开关，默认路径仍是系统选�
   assert.match(files, /路径越界/)
 })
 
+test('调试包也用正式密钥签，签名配置按 UTF-8 读', () => {
+  // 2026-11-17：不给调试包用正式密钥，App 内「检查更新」会一直报"有新版本"，
+  // 点了又装不上（构建产物是调试密钥签的，手机里那份是正式密钥）。
+  const gradle = read('android/app/build.gradle.kts')
+  assert.match(gradle, /signingConfigs/, '要有签名配置')
+  assert.match(gradle, /create\("devsig"\)/, '调试签名配置要独立命名')
+  assert.match(gradle, /debug \{[\s\S]*?signingConfig = signingConfigs\.getByName\("devsig"\)/,
+    'debug 构建要用正式密钥')
+  // 密钥与密码不能进仓库：只从环境变量或仓库外的 properties 读。
+  assert.match(gradle, /DSH_SIGNING_PROPS|signing\.properties/, '配置来自仓库外')
+  assert.doesNotMatch(gradle, /storePassword\s*=\s*"/, '不许把密码写进仓库')
+  // 必须按 UTF-8 读：密钥路径含中文目录，默认 ISO-8859-1 会读成乱码。
+  assert.match(gradle, /\.reader\(Charsets\.UTF_8\)/, 'properties 要按 UTF-8 读')
+  assert.doesNotMatch(gradle, /signingProps\.load\(found\.inputStream\(\)\)/, '不能用默认编码读')
+})
+
 test('终端只保留后台能力，界面上不出现', () => {
   const activity = read('android/app/src/main/java/com/dsh/miniremote/MainActivity.java')
   // 2026-11-12 用户决定：删掉全屏终端页，只留后台 phone_sh。
@@ -137,6 +153,21 @@ test('「手机终端」「工作文件夹」与「屏幕操作」平级', () =>
   assert.match(activity, /termuxRow\.insertAdjacentElement\('afterend',workRow\)/)
   assert.match(activity, />无障碍</)
   assert.match(activity, />确认档位</)
+  // 「手机执行命令」紧跟「手机终端」：两行都在讲手机上怎么跑命令（2026-11-17 用户要求）。
+  assert.match(activity, /termuxRow\.insertAdjacentElement\('afterend',adbRow\)/,
+    '执行命令要排在手机终端下面')
+  assert.doesNotMatch(activity, /checkRow\.insertAdjacentElement\('afterend',adbRow\)/,
+    '不许再挂到自检那一行后面')
+  // 七行收进「手机操控」分组，默认收起（2026-11-17 用户要求）。
+  assert.match(activity, /miniPhoneCtlHead/, '要有「手机操控」折叠标题')
+  assert.match(activity, /id=\\"miniPhoneCtlBody\\" hidden/, '分组默认收起')
+  assert.match(activity, /conn\.insertAdjacentElement\('afterend',phoneCtl\)/, '分组插在「连接」下面')
+  assert.match(activity, /pbody\.appendChild\(block\)/, '手机桥要进分组')
+  assert.match(activity, />手机操控</, '标题文案要对')
+  // 展开状态存 sessionStorage：同一次会话记得住，App 重开就回到收起。
+  assert.match(activity, /sessionStorage\.setItem\('mini_phone_ctl_open'/, '要记住本次会话的展开状态')
+  assert.match(activity, /sessionStorage\.getItem\('mini_phone_ctl_open'\)/, '重载后要能读回来')
+  assert.doesNotMatch(activity, /localStorage\.setItem\('mini_phone_ctl_open'/, '不许用 localStorage 跨重启记住')
   assert.match(activity, />最近操作</)
   // 箭头固定格宽并居中，不跟着状态文字漂。
   assert.match(activity, /#miniA11yChev\{flex:0 0 18px/)
