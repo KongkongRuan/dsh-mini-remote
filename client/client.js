@@ -3350,6 +3350,14 @@ window.__ModuleLoader__.load({
         // 选项是自动记住的，但得让人**看得见**这件事发生过；也给一个明确的"记住"按钮，
         // 免得总怀疑没保存。
         h('div', { style: { marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' } },
+          // 一行两个按钮：动作在左、保存靠右（和这一页"设置类按钮贴右"的习惯一致）。
+          h('button', {
+            type: 'button',
+            disabled: Boolean(soul.busy),
+            onClick: doExport,
+            style: styles.btnPrimary,
+          }, soul.busy === '导出中' ? '导出中…' : '开始导出'),
+          h('div', { style: { flex: '1 1 auto' } }),
           // 反馈就在按钮里：和这一页「复制 → 已复制」同一套做法与节奏。
           h('button', {
             type: 'button',
@@ -3360,14 +3368,6 @@ window.__ModuleLoader__.load({
           soul.prefsStatus === 'failed'
             ? h('div', { style: styles.muted }, '没保存成功，原因见下方红字。')
             : null,
-        ),
-        h('div', { style: { marginTop: 10 } },
-          h('button', {
-            type: 'button',
-            disabled: Boolean(soul.busy),
-            onClick: doExport,
-            style: styles.btnPrimary,
-          }, soul.busy === '导出中' ? '导出中…' : '开始导出'),
         ),
         // 结果就近显示：谁点的按钮，结果就在谁下面。
         errorNode('export'),

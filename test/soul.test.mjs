@@ -1460,3 +1460,12 @@ test('设置页：导出区不再挂那两行说明（用户要求删掉）', as
   // 但"保存失败要说"这条不能跟着一起删
   assert.match(client, /没保存成功，原因见下方红字/)
 })
+
+test('设置页：保存与开始导出在同一行', async () => {
+  const { readFileSync } = await import('node:fs')
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+  const row = client.slice(client.indexOf('动作在左、保存靠右'), client.indexOf('动作在左、保存靠右') + 1200)
+  // 同一行：先是导出的主按钮，再是一个撑开的占位，最后是保存（贴右）
+  assert.ok(row.indexOf('开始导出') < row.indexOf("'保存'"), '导出在左、保存在右')
+  assert.match(row, /flex: '1 1 auto'/, '中间要有撑开的占位把保存推到右边')
+})
