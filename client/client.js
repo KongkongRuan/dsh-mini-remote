@@ -613,6 +613,7 @@ window.__ModuleLoader__.load({
         syncDir: '',
         syncStage: null,
         errorAt: null,
+        prefsStatus: '',
         sessions: 'none',
         attachments: false,
         pluginData: false,
@@ -2883,10 +2884,12 @@ window.__ModuleLoader__.load({
        */
       var loadPrefs = function () {
         if (soulPrefsLoaded) return;
-        soulPrefsLoaded = true;
         getJson('/mini-remote/soul/prefs').then(function (r) {
-          var prefs = (r.body && r.body.prefs) || null;
-          if (!prefs) return;
+          // 只有真的读到了才记"读过"。读失败（宿主还没重启之类）就把旗标留着，
+          // 下次展开还能再试一次——否则会永远停在默认值上。
+          if (!r.body || r.body.ok !== true) return;
+          soulPrefsLoaded = true;
+          var prefs = r.body.prefs || {};
           setSoul(function (prev) {
             var next = Object.assign({}, prev);
             if (['none', 'recent', 'all'].includes(prefs.sessions)) next.sessions = prefs.sessions;
@@ -2907,8 +2910,33 @@ window.__ModuleLoader__.load({
           syncDir: soul.syncDir || '',
         };
       };
-      var savePrefs = function () {
-        post('/mini-remote/soul/prefs', prefsPayload()).catch(function () { /* 存不上不影响干活 */ });
+      /**
+       * 存选项。`overrides` 是"这次刚改的那几项"。
+       *
+       * 为什么必须显式传进来：延迟到下一拍再存，执行的是**这一次渲染的闭包**，
+       * `soul` 还是改之前的值——那会把上一次的选项存进去，用户看起来就是"点了没保存"
+       * （2026-11-17 真机就是这个症状）。
+       *
+       * 另外：失败要说出来。静默吞掉的保存等于没有保存。
+       */
+      var savePrefs = function (overrides) {
+        var payload = Object.assign(prefsPayload(), overrides || {});
+        patch({ prefsStatus: 'saving' });
+        return post('/mini-remote/soul/prefs', payload).then(function (r) {
+          if (r.body && r.body.ok) {
+            patch({ prefsStatus: 'saved' });
+            return true;
+          }
+          patch({
+            prefsStatus: 'failed',
+            errorAt: 'export',
+            error: '选项没记住：' + ((r.body && r.body.error) || ('HTTP ' + r.status)),
+          });
+          return false;
+        }).catch(function (err) {
+          patch({ prefsStatus: 'failed', errorAt: 'export', error: '选项没记住：' + ((err && err.message) || String(err)) });
+          return false;
+        });
       };
 
       var getJson = function (path) {
@@ -2941,7 +2969,7 @@ window.__ModuleLoader__.load({
             next.picker = null;
             patch(next);
             // 选完要**存住**：手打的路径有 onChange 兜着，弹框选的可没有。
-            if (field === 'syncDir') setTimeout(savePrefs, 0);
+            if (field === 'syncDir') savePrefs({ syncDir: body.path });
             return;
           }
           if (body.kind === 'browse') {
@@ -3146,7 +3174,7 @@ window.__ModuleLoader__.load({
             type: 'radio',
             name: 'soul-sessions',
             checked: soul.sessions === value,
-            onChange: function () { patch({ sessions: value }); setTimeout(savePrefs, 0); },
+            onChange: function () { patch({ sessions: value }); savePrefs({ sessions: value }); },
           }),
           text,
         );
@@ -3283,7 +3311,7 @@ window.__ModuleLoader__.load({
           h('input', {
             type: 'checkbox',
             checked: Boolean(soul.attachments),
-            onChange: function (e) { patch({ attachments: e.target.checked }); setTimeout(savePrefs, 0); },
+            onChange: function (e) { patch({ attachments: e.target.checked }); savePrefs({ attachments: e.target.checked }); },
           }),
           '连附件一起带（图片等，可能几百 MB）',
         ),
@@ -3291,7 +3319,7 @@ window.__ModuleLoader__.load({
           h('input', {
             type: 'checkbox',
             checked: Boolean(soul.pluginData),
-            onChange: function (e) { patch({ pluginData: e.target.checked }); setTimeout(savePrefs, 0); },
+            onChange: function (e) { patch({ pluginData: e.target.checked }); savePrefs({ pluginData: e.target.checked }); },
           }),
           '连插件私有数据一起带（记忆库等；白名单制，缓存不带）',
         ),
@@ -3315,6 +3343,20 @@ window.__ModuleLoader__.load({
               h('div', { style: styles.muted }, '密码只在这台电脑的内存里过一道：不写进包、不写进日志。忘了就解不开，只能重新填。'),
             )
           : null,
+        // 选项是自动记住的，但得让人**看得见**这件事发生过；也给一个明确的"记住"按钮，
+        // 免得总怀疑没保存。
+        h('div', { style: { marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' } },
+          h('button', {
+            type: 'button',
+            disabled: Boolean(soul.busy) || soul.prefsStatus === 'saving',
+            onClick: function () { savePrefs(); },
+            style: styles.btn,
+          }, soul.prefsStatus === 'saving' ? '正在记住…' : '记住这些选项'),
+          h('div', { style: styles.muted },
+            soul.prefsStatus === 'saved'
+              ? '已记住：下次打开还是这套（密码不保存）。'
+              : (soul.prefsStatus === 'failed' ? '没记住，原因见下方红字。' : '选项会自动记住，这个按钮只是再确认一次。')),
+        ),
         h('div', { style: styles.muted }, '会话只有两端 DSH 版本一致时才会真正搬过去；版本不同会被跳过并说明。'),
         h('div', { style: { marginTop: 10 } },
           h('button', {
@@ -3388,7 +3430,7 @@ window.__ModuleLoader__.load({
           h('input', {
             value: soul.syncDir || '',
             placeholder: '目标目录，例如 D:\\soul-sync 或你的网盘同步文件夹',
-            onChange: function (e) { patch({ syncDir: e.target.value }); setTimeout(savePrefs, 0); },
+            onChange: function (e) { patch({ syncDir: e.target.value }); savePrefs({ syncDir: e.target.value }); },
             style: styles.input,
           }),
           h('button', { type: 'button', onClick: function () { pickInto('syncDir'); }, style: Object.assign({}, styles.btn, { flex: 'none' }) }, '选择…'),

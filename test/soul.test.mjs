@@ -1374,7 +1374,7 @@ test('设置页：弹框选中的目录也要存住，且"只读一次"的旗标
   const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
 
   // 手打路径有 onChange 兜着；弹框选中的那条路以前谁来存？没人。
-  assert.match(client, /if \(field === 'syncDir'\) setTimeout\(savePrefs, 0\)/, '选完目录要保存')
+  assert.match(client, /if \(field === 'syncDir'\) savePrefs\(\{ syncDir: body\.path \}\)/, '选完目录要保存')
 
   // 旗标放在渲染函数里会每次渲染都重置 → 每次渲染都去问一遍服务端
   const start = client.indexOf('function soulBlock(')
@@ -1417,4 +1417,28 @@ test('选项记忆：同一条路由能读也能写（不要注册两次，后�
     assert.equal(seen.pop().payload.prefs.syncDir, 'D:\\sync', '写进去的要读得回来')
     delete process.env.DSH_HOME
   })
+})
+
+test('设置页：选项要能存住，而且存的是"这次改完的值"', async () => {
+  const { readFileSync } = await import('node:fs')
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+
+  // 旧写法 setTimeout(savePrefs, 0) 执行的是改动前的闭包，会把上一次的值存进去
+  assert.equal(/setTimeout\(savePrefs/.test(client), false, '不能再用延迟保存（会存成上一次的值）')
+  assert.match(client, /savePrefs\(\{ sessions: value \}\)/, '会话选项要带上新值')
+  assert.match(client, /savePrefs\(\{ attachments: e\.target\.checked \}\)/, '附件要带上新值')
+  assert.match(client, /savePrefs\(\{ pluginData: e\.target\.checked \}\)/, '私有数据要带上新值')
+  assert.match(client, /savePrefs\(\{ syncDir: body\.path \}\)/, '选中的目录要存')
+
+  // 失败必须说出来，不能静默
+  assert.match(client, /选项没记住：/, '存不上要显示原因')
+  assert.match(client, /记住这些选项/, '要有个明确的保存按钮')
+})
+
+
+test('设置页：读保存值失败时要能重试，不能永远停在默认值', async () => {
+  const { readFileSync } = await import('node:fs')
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+  assert.match(client, /if \(!r\.body \|\| r\.body\.ok !== true\) return;/, '读失败不算读过')
+  assert.match(client, /soulPrefsLoaded = true;/, '读到了才记旗标')
 })
