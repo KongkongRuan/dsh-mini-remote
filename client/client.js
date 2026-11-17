@@ -2861,6 +2861,30 @@ window.__ModuleLoader__.load({
         });
       };
 
+      /**
+       * 点「选择…」：先让电脑弹系统文件夹对话框（本机场景下这是唯一对的交互）。
+       * 只有宿主说它只能给列表（例如 DSH 跑在远端）时，才退回网页里的内联列表。
+       */
+      var chooseFolder = function () {
+        patch({ busy: '选择中', error: null });
+        post('/mini-remote/soul/pick-folder', {}).then(function (r) {
+          patch({ busy: '' });
+          var body = r.body || {};
+          if (body.ok && body.path) {
+            patch({ packDir: body.path, picker: null });
+            return;
+          }
+          if (body.kind === 'browse') {
+            // 弹不出来是环境限制，不是错误：直接给列表，别让用户卡住。
+            openPicker();
+            return;
+          }
+          patch({ error: body.reason || '没能打开选择框，请手动填目录。' });
+        }).catch(function (err) {
+          patch({ busy: '', error: (err && err.message) || String(err) });
+        });
+      };
+
       /** 打开选包的目录浏览：先拿常用位置，再列当前目录。 */
       var openPicker = function () {
         patch({ picker: { path: '', entries: [], roots: [], busy: true, error: null } });
@@ -3052,11 +3076,11 @@ window.__ModuleLoader__.load({
           h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
             h('input', {
               value: soul.packDir || '',
-              placeholder: '点右边「选择…」挑一个目录',
+              placeholder: '点右边「选择…」弹出系统的文件夹选择框',
               onChange: function (e) { patch({ packDir: e.target.value }); },
               style: styles.input,
             }),
-            h('button', { type: 'button', onClick: openPicker, style: Object.assign({}, styles.btn, { flex: 'none' }) }, '选择…'),
+            h('button', { type: 'button', onClick: chooseFolder, style: Object.assign({}, styles.btn, { flex: 'none' }) }, '选择…'),
           ),
           pickerBlock(),
         ),

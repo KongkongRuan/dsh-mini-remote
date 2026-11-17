@@ -991,8 +991,54 @@ test('选包：设置页能浏览目录挑一个，而不是只能手填', async
   assert.match(routes, /from '\.\.\/browse\.js'/, '要复用 lib/browse.js')
 
   const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
-  assert.match(client, /onClick: openPicker/, '要有个"选择…"按钮')
+  // 按钮现在先弹系统对话框，内联列表只作退路：两种入口都要在。
+  assert.match(client, /onClick: chooseFolder/, '要有个"选择…"按钮')
+  assert.match(client, /var openPicker = function/, '退路：内联列表')
   assert.match(client, /browse-list\?path=/, '要能逐层进目录')
   assert.match(client, /用这个目录/, '要能确认选中')
   assert.match(client, /choosePickerPath/, '选中后要填进输入框')
+})
+
+test('选包：优先弹系统文件夹对话框，弹不出来才退回列表', async () => {
+  const { registerSoulRoutes } = await import('../lib/soul/routes.js')
+  const run = async (capability) => {
+    const seen = []
+    const handlers = new Map()
+    registerSoulRoutes({
+      ctx: { get: (n) => (n === 'directoryPicker' ? { capability: () => capability } : undefined) },
+      mountRoute: ({ path, handler }) => {
+        handlers.set(path, handler)
+        return () => {}
+      },
+      localOnly: () => true,
+      readBody: async (r) => r.body,
+      sendJson: (_res, status, payload) => seen.push({ status, payload }),
+      log: { warn: () => {} },
+    })
+    await handlers.get('/mini-remote/soul/pick-folder')({ method: 'POST', body: {} }, {})
+    return seen.pop().payload
+  }
+
+  // ① 有原生能力：真的去 pick，回来就是选中的路径
+  const native = await run({ kind: 'native', pick: async () => 'D:\\soul-20261117' })
+  assert.equal(native.ok, true)
+  assert.equal(native.kind, 'native')
+  assert.equal(native.path, 'D:\\soul-20261117')
+
+  // ② 用户取消了：不报错，只是没有路径
+  const cancelled = await run({ kind: 'native', pick: async () => null })
+  assert.equal(cancelled.ok, true)
+  assert.equal(cancelled.path, '')
+
+  // ③ 只能给列表：如实说 browse，让界面退回自己的列表——不假装弹了框
+  const browse = await run({ kind: 'browse', list: async () => ({}) })
+  assert.equal(browse.ok, false)
+  assert.equal(browse.kind, 'browse')
+
+  // ④ 界面里的按钮要先调这条，再决定要不要退回内联列表
+  const { readFileSync } = await import('node:fs')
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+  assert.match(client, /onClick: chooseFolder/, '按钮要调原生选择')
+  assert.match(client, /pick-folder/, '要打这条接口')
+  assert.match(client, /body\.kind === 'browse'/, '宿主只能给列表时要退回')
 })
