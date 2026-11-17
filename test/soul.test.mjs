@@ -1253,3 +1253,22 @@ test('同步：只保留最近若干份，旧的连目录一起清掉', async ()
     assert.equal(status.latest.id, lastId)
   })
 })
+
+test('设置页：错误要显示在它自己那一段，不能跑到板块顶上', async () => {
+  const { readFileSync } = await import('node:fs')
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+
+  // 每一段都有自己的错误位
+  assert.match(client, /errorNode\('export'\)/)
+  assert.match(client, /errorNode\('import'\)/)
+  assert.match(client, /errorNode\('sync'\)/)
+
+  // 顶部只留"没有归属"的兜底，不能再无条件把错误摊在最上面
+  assert.match(client, /\(soul\.error && !soul\.errorAt\)/, '顶部只该是兜底')
+  assert.equal(/^\s+soul\.error \? h\('div', \{ style: styles\.error \}, soul\.error\) : null,$/m.test(client), false,
+    '旧的"永远显示在顶部"写法必须删掉')
+
+  // 每次请求都要说出自己属于哪一段
+  assert.match(client, /patch\(\{ busy: label, error: null, errorAt: null \}\)/)
+  assert.match(client, /errorAt: section \|\| null/)
+})

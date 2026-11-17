@@ -609,6 +609,7 @@ window.__ModuleLoader__.load({
         packDir: '',
         syncDir: '',
         syncStage: null,
+        errorAt: null,
         sessions: 'none',
         attachments: false,
         pluginData: false,
@@ -2805,8 +2806,12 @@ window.__ModuleLoader__.load({
           );
         });
       };
-      var run = function (label, path, body) {
-        patch({ busy: label, error: null });
+      /**
+       * `section` 决定这条错误显示在哪：'export' / 'import' / 'sync'。
+       * 错误必须出现在**点按钮的地方**，不能跑到板块顶上（2026-11-17 用户指出）。
+       */
+      var run = function (label, path, body, section) {
+        patch({ busy: label, error: null, errorAt: null });
         return post(path, body)
           .then(function (r) {
             patch({ busy: '' });
@@ -2814,6 +2819,7 @@ window.__ModuleLoader__.load({
               // 404 几乎总是同一个原因：宿主插件还是旧进程，新路由没注册上。
               // 这时候说"重启一次 DSH"比说"请求失败"有用得多。
               patch({
+                errorAt: section || null,
                 error: r.status === 404
                   ? '这个功能需要新版本的插件接口，但当前宿主还是旧的：请重启一次 DSH 再试。'
                   : (r.body && (r.body.error || r.body.verdict)) || ('请求失败（HTTP ' + r.status + '）'),
@@ -2823,13 +2829,19 @@ window.__ModuleLoader__.load({
             return r.body;
           })
           .catch(function (err) {
-            patch({ busy: '', error: (err && err.message) || String(err) });
+            patch({ busy: '', errorAt: section || null, error: (err && err.message) || String(err) });
             return null;
           });
       };
 
       var pathMapOf = function () {
-        var rows = [];
+        /** 这一段自己的错误节点；不属于这一段就返回 null。 */
+      var errorNode = function (section) {
+        if (!soul.error || soul.errorAt !== section) return null;
+        return h('div', { key: 'err-' + section, style: Object.assign({}, styles.error, { marginTop: 8 }) }, soul.error);
+      };
+
+      var rows = [];
       for (var i = 1; i <= 3; i += 1) {
           var from = (soul['from' + i] || '').trim();
           var to = (soul['to' + i] || '').trim();
@@ -2880,7 +2892,8 @@ window.__ModuleLoader__.load({
 
       /** 弹系统框选一个目录，选到的路径写进 state 里的哪个字段。 */
       var pickInto = function (field) {
-        patch({ busy: '选择中', error: null });
+        var section = field === 'syncDir' ? 'sync' : 'import';
+        patch({ busy: '选择中', error: null, errorAt: null });
         post('/mini-remote/soul/pick-folder', {}).then(function (r) {
           patch({ busy: '' });
           var body = r.body || {};
@@ -2897,12 +2910,13 @@ window.__ModuleLoader__.load({
             return;
           }
           patch({
+            errorAt: section,
             error: r.status === 404
               ? '这个功能需要新版本的插件接口，但当前宿主还是旧的：请重启一次 DSH 再试。'
               : (body.reason || '没能打开选择框，请手动填目录。'),
           });
         }).catch(function (err) {
-          patch({ busy: '', error: (err && err.message) || String(err) });
+          patch({ busy: '', errorAt: section, error: (err && err.message) || String(err) });
         });
       };
 
@@ -3006,7 +3020,7 @@ window.__ModuleLoader__.load({
           attachments: soul.attachments,
           pluginData: Boolean(soul.pluginData),
           password: soul.includeSecrets ? (soul.exportPassword || '') : '',
-        }).then(function (body) {
+        }, 'export').then(function (body) {
           if (body) patch({ stage: { kind: 'export', body: body }, error: null });
         });
       };
@@ -3028,8 +3042,8 @@ window.__ModuleLoader__.load({
           confirm: true,
           pathMap: pathMapOf(),
           password: soul.applyPassword || '',
-        }).then(function (body) {
-          if (body) patch({ stage: { kind: 'apply', body: body }, confirmApply: false, error: body.ok === false ? (body.error || '有项失败') : null });
+        }, 'import').then(function (body) {
+          if (body) patch({ stage: { kind: 'apply', body: body }, confirmApply: false, errorAt: body.ok === false ? 'import' : null, error: body.ok === false ? (body.error || '有项失败') : null });
         });
       };
       var doRollback = function () {
@@ -3219,6 +3233,7 @@ window.__ModuleLoader__.load({
           }, soul.busy === '导出中' ? '导出中…' : '开始导出'),
         ),
         // 结果就近显示：谁点的按钮，结果就在谁下面。
+        errorNode('export'),
         exportRows.length ? h('div', { key: 'soul-export-result', style: styles.block }, exportRows) : null,
       ));
 
@@ -3269,6 +3284,7 @@ window.__ModuleLoader__.load({
             }),
           );
         }),
+        errorNode('import'),
         importRows.length ? h('div', { key: 'soul-import-result', style: styles.block }, importRows) : null,
       ));
 
@@ -3291,12 +3307,14 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', disabled: Boolean(soul.busy) || !soul.syncDir, onClick: doSyncPull, style: styles.btn }, '拉取最新'),
         ),
         h('div', { style: styles.muted }, '推送用的是上面「导出」产出的那份包；先导出，再推送。默认只保留最近 5 份，旧的自动清掉。'),
+        errorNode('sync'),
         syncRows.length ? h('div', { key: 'soul-sync-result', style: styles.block }, syncRows) : null,
       ));
 
 
       return h('div', null,
-        soul.error ? h('div', { style: styles.error }, soul.error) : null,
+        // 错误默认跟着各自的按钮走；只有拿不到归属时才退回顶部（极少见）。
+        (soul.error && !soul.errorAt) ? h('div', { style: styles.error }, soul.error) : null,
         soul.busy ? h('div', { style: styles.loading }, soul.busy + '…') : null,
         rows,
       );
