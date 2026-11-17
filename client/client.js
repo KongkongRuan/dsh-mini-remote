@@ -2796,7 +2796,9 @@ window.__ModuleLoader__.load({
      */
     function soulBlock(soul, setSoul) {
       // 展开之前的首屏也能拿到保存值：延迟一拍再读，别在渲染期改状态。
-      setTimeout(loadPrefs, 0);
+      // **必须包一层函数**：直接把函数名交给 setTimeout 会在这一刻求值，
+      // 而 loadPrefs 的赋值在下面，拿到的是 undefined —— 等于没调用（2026-11-17 实测）。
+      setTimeout(function () { loadPrefs(); }, 0);
 
       var patch = function (part) {
         setSoul(function (prev) { return Object.assign({}, prev, part); });

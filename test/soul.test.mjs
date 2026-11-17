@@ -1442,3 +1442,10 @@ test('设置页：读保存值失败时要能重试，不能永远停在默认�
   assert.match(client, /if \(!r\.body \|\| r\.body\.ok !== true\) return;/, '读失败不算读过')
   assert.match(client, /soulPrefsLoaded = true;/, '读到了才记旗标')
 })
+
+test('设置页：读保存值的那一拍必须包成函数，否则求值到 undefined', async () => {
+  const { readFileSync } = await import('node:fs')
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+  assert.equal(/setTimeout\(loadPrefs,/.test(client), false, '不能直接把函数名交给 setTimeout')
+  assert.match(client, /setTimeout\(function \(\) \{ loadPrefs\(\); \}, 0\)/, '要包一层立即调用的壳')
+})
