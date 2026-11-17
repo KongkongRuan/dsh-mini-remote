@@ -3390,7 +3390,7 @@ window.__ModuleLoader__.load({
       // ── 导入 ──
       rows.push(h('div', { key: 'soul-import', style: styles.block },
         h('div', { style: styles.entryTitle }, '把一份灵魂包注入到这台电脑'),
-        h('div', { style: styles.muted }, '先体检，再生成计划；执行前会再确认一次。所有写入都会先做快照，能整笔退回去。'),
+        h('div', { style: styles.muted }, '先「体检」看看包里有什么；「执行注入」会先列出要做什么，确认后才真的写。写入前会自动快照，能整笔退回。'),
         h('div', { style: { marginTop: 8 } },
           h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
             h('input', {
@@ -3403,7 +3403,6 @@ window.__ModuleLoader__.load({
           ),
           pickerBlock(),
         ),
-        h('div', { style: styles.muted }, '先「体检」看看包里有什么；「执行注入」会先列出要做什么，确认后才真的写。'),
         h('div', { style: { marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' } },
           h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doInspect, style: styles.btn },
             soul.busy === '体检中' ? '体检中…' : '体检（只读）'),
