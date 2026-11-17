@@ -1451,3 +1451,12 @@ test('设置页：读保存值的那一拍必须包成函数，否则求值到 u
   assert.equal(/setTimeout\(loadPrefs,/.test(client), false, '不能直接把函数名交给 setTimeout')
   assert.match(client, /setTimeout\(function \(\) \{ loadPrefs\(\); \}, 0\)/, '要包一层立即调用的壳')
 })
+
+test('设置页：导出区不再挂那两行说明（用户要求删掉）', async () => {
+  const { readFileSync } = await import('node:fs')
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+  assert.equal(client.includes('改任何一项都会自动保存'), false)
+  assert.equal(client.includes('会话只有两端 DSH 版本一致时才会真正搬过去'), false)
+  // 但"保存失败要说"这条不能跟着一起删
+  assert.match(client, /没保存成功，原因见下方红字/)
+})

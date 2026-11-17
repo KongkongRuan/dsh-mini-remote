@@ -3357,12 +3357,10 @@ window.__ModuleLoader__.load({
             onClick: function () { savePrefs(); },
             style: soul.prefsStatus === 'saved' ? styles.btnCopyDone : styles.btnCopy,
           }, soul.prefsStatus === 'saving' ? '保存中…' : (soul.prefsStatus === 'saved' ? '已保存' : '保存')),
-          h('div', { style: styles.muted },
-            soul.prefsStatus === 'failed'
-              ? '没保存成功，原因见下方红字。'
-              : '改任何一项都会自动保存（密码不保存）。'),
+          soul.prefsStatus === 'failed'
+            ? h('div', { style: styles.muted }, '没保存成功，原因见下方红字。')
+            : null,
         ),
-        h('div', { style: styles.muted }, '会话只有两端 DSH 版本一致时才会真正搬过去；版本不同会被跳过并说明。'),
         h('div', { style: { marginTop: 10 } },
           h('button', {
             type: 'button',
