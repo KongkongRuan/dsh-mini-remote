@@ -1490,3 +1490,12 @@ test('设置页：同步区不再挂"按上面选项直接打包"那行说明', 
   assert.equal(client.includes('不需要先导出'), false)
   assert.equal(client.includes('默认只保留最近 5 份，旧的自动清掉'), false)
 })
+
+test('设置页：选完同步目录要把具体路径显示出来', async () => {
+  const { readFileSync } = await import('node:fs')
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+  assert.match(client, /'目标目录：' \+ soul\.syncDir/, '要显示完整路径')
+  assert.match(client, /soul\.prefsStatus === 'saved' \? '（已保存）' : ''/, '保存后要标出来')
+  // 选中即保存，之后除非重选不该被改
+  assert.match(client, /if \(field === 'syncDir'\) savePrefs\(\{ syncDir: body\.path \}\)/)
+})

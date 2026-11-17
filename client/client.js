@@ -3440,6 +3440,11 @@ window.__ModuleLoader__.load({
           }),
           h('button', { type: 'button', onClick: function () { pickInto('syncDir'); }, style: Object.assign({}, styles.btn, { flex: 'none' }) }, '选择…'),
         ),
+        // 选完就把**具体路径**写出来：输入框会截断长路径，核对时看不全。
+        soul.syncDir
+          ? h('div', { style: Object.assign({}, styles.muted, { marginTop: 4, wordBreak: 'break-all' }) },
+              '目标目录：' + soul.syncDir + (soul.prefsStatus === 'saved' ? '（已保存）' : ''))
+          : null,
         h('div', { style: { marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' } },
           h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doSyncStatus, style: styles.btn },
             soul.busy === '比对中' ? '比对中…' : '比对'),
