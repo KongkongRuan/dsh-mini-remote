@@ -3246,10 +3246,18 @@ window.__ModuleLoader__.load({
           h('div', { style: styles.entryTitle }, '体检结果'),
           h('div', { style: styles.warn }, ins.verdict || ''),
           h('div', { style: styles.muted }, '校验和：' + (ins.integrity && ins.integrity.ok ? '通过' : '没通过——不要执行')),
+          h('div', { style: styles.muted }, '包来自 DSH ' + ((ins.manifest.source && ins.manifest.source.dshVersion) || '未知')
+            + '；本机是 ' + ((ins.target && ins.target.liveDshVersion) || '未知')
+            + (ins.target && ins.target.versionMatches ? '（一致）' : '（不一致）')),
           h('div', { style: styles.muted }, '包里有：插件 ' + (ins.content.bundles || 0) + ' 个、配置 ' + (ins.content.settingsNamespaces || 0) + ' 条、会话 ' + (ins.content.sessions || 0) + ' 个、附件 ' + (ins.content.attachments || 0) + ' 个。'),
           (ins.target && ins.target.missingBundles && ins.target.missingBundles.length)
             ? h('div', { style: styles.detail }, '目标机缺这些插件（执行时会自动安装）：' + ins.target.missingBundles.slice(0, 8).join('、') + (ins.target.missingBundles.length > 8 ? ' 等' : ''))
             : null,
+          // 下一步直接给按钮：只读那一步走完，人应该知道接下来点哪儿。
+          h('div', { style: { marginTop: 10 } },
+            h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doPlan, style: styles.btn },
+              soul.busy === '生成计划' ? '生成中…' : '下一步：生成计划'),
+          ),
         ));
       }
       if (stage && stage.kind === 'plan') {
@@ -3388,6 +3396,7 @@ window.__ModuleLoader__.load({
           ),
           pickerBlock(),
         ),
+        h('div', { style: styles.muted }, '顺序：体检 → 生成计划 →（计划出来后在下面点「执行注入」）。前两步只读，不写任何东西。'),
         h('div', { style: { marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' } },
           h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doInspect, style: styles.btn },
             soul.busy === '体检中' ? '体检中…' : '体检（只读）'),

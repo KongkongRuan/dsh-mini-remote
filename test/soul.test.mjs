@@ -1501,3 +1501,40 @@ test('设置页：选完同步目录要把具体路径显示出来', async () =>
   // 选中即保存，之后除非重选不该被改
   assert.match(client, /if \(field === 'syncDir'\) savePrefs\(\{ syncDir: body\.path \}\)/)
 })
+
+test('体检：本机版本读不出来时不算"版本不同"，核心包也不该误判为缺失', async () => {
+  await withTemp(async (root) => {
+    const home = join(root, 'home')
+    await mkdir(join(home, 'profiles', 'web'), { recursive: true })
+    // 核心 bundle 在依赖里，但它不是通过 npm 装的
+    await writeFile(
+      join(home, 'profiles', 'web', 'package.json'),
+      JSON.stringify({ dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', 'some-plugin'] } }, dependencies: { '@deepseek-ai/dsh-base': '0.2.2-rc.3' } }),
+      'utf8',
+    )
+    const pack = join(root, 'pack')
+    await makePack(pack, {
+      bundles: [
+        { name: '@deepseek-ai/dsh-base', installed: true, enabled: true, version: '0.2.2-rc.3' },
+        { name: 'some-plugin', installed: true, enabled: true, version: '1.0.0' },
+      ],
+      namespaces: {},
+    })
+    const manifest = JSON.parse(await readFile(join(pack, 'manifest.json'), 'utf8'))
+    manifest.source.dshVersion = '0.2.2-rc.3'
+    await writeFile(join(pack, 'manifest.json'), JSON.stringify(manifest), 'utf8')
+    const { finalizePack } = await import('../lib/soul/pack.js')
+    await finalizePack(pack, manifest)
+
+    // 本机：pluginManager 只能报"未装"，也没有版本信息
+    const ctx = {
+      get: (name) => (name === 'pluginManager'
+        ? { listBundles: async () => [{ name: 'some-plugin', installed: false, enabled: true }] }
+        : undefined),
+    }
+    const { inspectSoul } = await import('../lib/soul/inspect.js')
+    const ins = await inspectSoul({ packDir: pack, ctx, home })
+    assert.equal(ins.target.versionMatches, true, '本机版本未知时不能判成不一致')
+    assert.equal(ins.target.missingBundles.includes('@deepseek-ai/dsh-base'), false, '依赖里有的核心包不算缺失')
+  })
+})
