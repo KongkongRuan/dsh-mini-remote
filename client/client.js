@@ -609,6 +609,7 @@ window.__ModuleLoader__.load({
         packDir: '',
         sessions: 'none',
         attachments: false,
+        picker: null,
         includeSecrets: false,
         exportPassword: '',
         applyPassword: '',
@@ -2851,6 +2852,95 @@ window.__ModuleLoader__.load({
         }, (label || dir) + ' ↗');
       };
 
+      var getJson = function (path) {
+        return fetch(path).then(function (res) {
+          return res.json().then(
+            function (b) { return { status: res.status, body: b }; },
+            function () { return { status: res.status, body: null }; },
+          );
+        });
+      };
+
+      /** 打开选包的目录浏览：先拿常用位置，再列当前目录。 */
+      var openPicker = function () {
+        patch({ picker: { path: '', entries: [], roots: [], busy: true, error: null } });
+        getJson('/mini-remote/soul/browse-roots').then(function (r) {
+          var roots = (r.body && r.body.roots) || [];
+          var first = roots.length ? roots[0].path : '';
+          patch({ picker: { path: first, entries: [], roots: roots, busy: Boolean(first), error: null } });
+          if (first) browseTo(first);
+        }).catch(function (err) {
+          patch({ picker: null, error: (err && err.message) || String(err) });
+        });
+      };
+
+      var browseTo = function (dir) {
+        patch({ picker: Object.assign({}, soul.picker || {}, { busy: true, error: null }) });
+        getJson('/mini-remote/soul/browse-list?path=' + encodeURIComponent(dir)).then(function (r) {
+          if (!r.body || r.body.ok === false) {
+            patch({ picker: Object.assign({}, soul.picker || {}, { busy: false, error: (r.body && r.body.error) || '读不到这个目录' }) });
+            return;
+          }
+          patch({ picker: Object.assign({}, soul.picker || {}, {
+            path: r.body.path || dir,
+            parent: r.body.parent || '',
+            entries: r.body.entries || [],
+            busy: false,
+            error: null,
+          }) });
+        }).catch(function (err) {
+          patch({ picker: Object.assign({}, soul.picker || {}, { busy: false, error: (err && err.message) || String(err) }) });
+        });
+      };
+
+      var choosePickerPath = function () {
+        var picked = (soul.picker && soul.picker.path) || '';
+        patch({ packDir: picked, picker: null });
+      };
+
+      var pickerBlock = function () {
+        var pk = soul.picker;
+        if (!pk) return null;
+        var rows = [];
+        if (pk.roots && pk.roots.length) {
+          rows.push(h('div', { key: 'roots', style: { display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 } },
+            pk.roots.slice(0, 6).map(function (root) {
+              return h('button', {
+                key: 'root-' + root.path,
+                type: 'button',
+                onClick: function () { browseTo(root.path); },
+                style: styles.btn,
+              }, root.label || root.path);
+            }),
+          ));
+        }
+        rows.push(h('div', { key: 'cur', style: Object.assign({}, styles.muted, { marginTop: 8, wordBreak: 'break-all' }) }, pk.path || '（还没选目录）'));
+        if (pk.busy) rows.push(h('div', { key: 'busy', style: styles.loading }, '正在读目录…'));
+        if (pk.error) rows.push(h('div', { key: 'err', style: styles.error }, pk.error));
+        if (pk.parent) {
+          rows.push(h('button', { key: 'up', type: 'button', onClick: function () { browseTo(pk.parent); }, style: Object.assign({}, styles.btn, { marginTop: 6 }) }, '上一级'));
+        }
+        if (pk.entries && pk.entries.length) {
+          rows.push(h('div', { key: 'list', style: { marginTop: 6, maxHeight: 200, overflow: 'auto' } },
+            pk.entries.map(function (one) {
+              return h('button', {
+                key: 'dir-' + one.path,
+                type: 'button',
+                onClick: function () { browseTo(one.path); },
+                style: Object.assign({}, styles.btn, { display: 'block', width: '100%', textAlign: 'left', marginTop: 4 }),
+              }, '📁 ' + (one.name || one.path));
+            }),
+          ));
+        } else if (!pk.busy) {
+          rows.push(h('div', { key: 'empty', style: Object.assign({}, styles.muted, { marginTop: 6 }) }, '这个目录下面没有子文件夹。'));
+        }
+        rows.push(h('div', { key: 'actions', style: { marginTop: 8, display: 'flex', gap: 8 } },
+          h('button', { type: 'button', disabled: !pk.path, onClick: choosePickerPath, style: styles.btnPrimary }, '用这个目录'),
+          h('button', { type: 'button', onClick: function () { patch({ picker: null }); }, style: styles.btn }, '取消'),
+        ));
+        return h('div', { key: 'picker', style: styles.subGroup }, rows);
+      };
+
       var doExport = function () {
         run('导出中', '/mini-remote/soul/export', {
           sessions: soul.sessions,
@@ -2959,12 +3049,16 @@ window.__ModuleLoader__.load({
         h('div', { style: styles.entryTitle }, '把一份灵魂包注入到这台电脑'),
         h('div', { style: styles.muted }, '先体检，再生成计划；执行前会再确认一次。所有写入都会先做快照，能整笔退回去。'),
         h('div', { style: { marginTop: 8 } },
-          h('input', {
-            value: soul.packDir || '',
-            placeholder: '灵魂包目录，例如 D:\\soul-20261117',
-            onChange: function (e) { patch({ packDir: e.target.value }); },
-            style: styles.input,
-          }),
+          h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
+            h('input', {
+              value: soul.packDir || '',
+              placeholder: '点右边「选择…」挑一个目录',
+              onChange: function (e) { patch({ packDir: e.target.value }); },
+              style: styles.input,
+            }),
+            h('button', { type: 'button', onClick: openPicker, style: Object.assign({}, styles.btn, { flex: 'none' }) }, '选择…'),
+          ),
+          pickerBlock(),
         ),
         h('div', { style: { marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' } },
           h('button', { type: 'button', disabled: Boolean(soul.busy) || !soul.packDir, onClick: doInspect, style: styles.btn }, '体检（只读）'),

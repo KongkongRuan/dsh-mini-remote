@@ -979,3 +979,20 @@ test('配置：没有 describeAll 时退回按 settings.yaml 的键名逐个问'
     assert.deepEqual(asked.sort(), ['broken-entry', 'llm-deepseek', 'skin'], '三个名字都要问一遍')
   })
 })
+
+
+test('选包：设置页能浏览目录挑一个，而不是只能手填', async () => {
+  const { readFileSync } = await import('node:fs')
+  const routes = readFileSync(new URL('../lib/soul/routes.js', import.meta.url), 'utf8')
+  assert.match(routes, /'\/mini-remote\/soul\/browse-roots'/, '要有"常用位置"接口')
+  assert.match(routes, /'\/mini-remote\/soul\/browse-list'/, '要有列子目录接口')
+  assert.match(routes, /listDirectory/, '复用已有的读目录实现')
+  // 复用 browse.js 而不是自己写一套：那份已经处理了跨平台盘符与权限边界。
+  assert.match(routes, /from '\.\.\/browse\.js'/, '要复用 lib/browse.js')
+
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+  assert.match(client, /onClick: openPicker/, '要有个"选择…"按钮')
+  assert.match(client, /browse-list\?path=/, '要能逐层进目录')
+  assert.match(client, /用这个目录/, '要能确认选中')
+  assert.match(client, /choosePickerPath/, '选中后要填进输入框')
+})
