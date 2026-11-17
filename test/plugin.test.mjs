@@ -4401,11 +4401,11 @@ test('自检：该回答的那几样一样不缺（版本 / 进程 / 接口 / �
     '/mini-remote/tailnet-key',
     // 移魂（2026-11-17）：设置页面板那一侧的五条
     '/mini-remote/soul/export', '/mini-remote/soul/inspect', '/mini-remote/soul/plan',
-    '/mini-remote/soul/apply', '/mini-remote/soul/rollback',
+    '/mini-remote/soul/apply', '/mini-remote/soul/rollback', '/mini-remote/soul/open-folder',
   ]) {
     assert.ok(paths.includes(want), `清单里少了 ${want}`)
   }
-  assert.equal(body.routes.length, 44, '四十四条注册就报四十四条（清单和注册同一处发生）')
+  assert.equal(body.routes.length, 45, '四十五条注册就报四十五条（清单和注册同一处发生）')
   assert.ok(body.routes.every((one) => one.mounted === true), '刚起来的这一份，条条都该是"在"')
 
   // ④ 开关：默认关

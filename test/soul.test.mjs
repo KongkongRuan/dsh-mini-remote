@@ -897,3 +897,43 @@ test('凭据：agent 工具明确拒收密码，并指路设置页', async () =>
   const params = tools.slice(tools.indexOf('const tools = ['), tools.indexOf('for (const tool of tools)'))
   assert.equal(/password:/.test(params), false, '工具参数里不能有 password')
 })
+
+test('打开目录：只认 DSH 自己的目录，且不存在要如实说', async () => {
+  const { registerSoulRoutes } = await import('../lib/soul/routes.js')
+  const { resolveHome } = await import('../lib/soul/env.js')
+  const seen = []
+  const handlers = new Map()
+  registerSoulRoutes({
+    ctx: { get: () => undefined },
+    mountRoute: ({ path, handler }) => {
+      handlers.set(path, handler)
+      return () => {}
+    },
+    localOnly: () => true,
+    readBody: async (req) => req.body,
+    sendJson: (_res, status, payload) => seen.push({ status, payload }),
+    log: { warn: () => {} },
+  })
+  const handler = handlers.get('/mini-remote/soul/open-folder')
+  assert.ok(handler, '要注册这条路由')
+
+  // ① 系统目录：拒绝（这条路由不是"打开任何路径"的通用入口）
+  await handler({ method: 'POST', body: { path: 'C:\\Windows' } }, {})
+  assert.equal(seen.pop().status, 400)
+
+  // ② DSH 目录里但不存在的：404
+  await handler({ method: 'POST', body: { path: join(resolveHome(), 'no-such-dir-here') } }, {})
+  assert.equal(seen.pop().status, 404)
+
+  // ③ 只接受 POST
+  await handler({ method: 'GET', body: {} }, {})
+  assert.equal(seen.pop().status, 405)
+})
+
+test('设置页：导出结果里的目录可以点开', async () => {
+  const { readFileSync } = await import('node:fs')
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+  assert.match(client, /open-folder/, '要调那条接口')
+  assert.match(client, /dirLink\(b\.outDir\)/, '导出目录要能点')
+  assert.match(client, /dirLink\(ap\.snapshotDir\)/, '快照目录也要能点')
+})

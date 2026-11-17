@@ -2828,6 +2828,29 @@ window.__ModuleLoader__.load({
         return rows;
       };
 
+      // 让电脑这边打开目录：浏览器打不开本地文件夹，只能点一下让宿主去开。
+      var openFolder = function (dir) {
+        if (!dir) return;
+        patch({ error: null });
+        post('/mini-remote/soul/open-folder', { path: dir }).then(function (r) {
+          if (!r.body || r.body.ok === false) {
+            patch({ error: (r.body && r.body.error) || '打不开这个目录，请手动去资源管理器里找。' });
+          }
+        }).catch(function (err) {
+          patch({ error: (err && err.message) || String(err) });
+        });
+      };
+
+      var dirLink = function (dir, label) {
+        if (!dir) return null;
+        return h('button', {
+          type: 'button',
+          onClick: function () { openFolder(dir); },
+          style: Object.assign({}, styles.link, { font: 'inherit', fontSize: 12, padding: 0, border: 0, background: 'none', cursor: 'pointer', textAlign: 'left', wordBreak: 'break-all' }),
+          title: '在这台电脑上打开这个目录',
+        }, (label || dir) + ' ↗');
+      };
+
       var doExport = function () {
         run('导出中', '/mini-remote/soul/export', {
           sessions: soul.sessions,
@@ -2983,7 +3006,9 @@ window.__ModuleLoader__.load({
         var b = stage.body;
         stageRows.push(h('div', { key: 'r-export', style: styles.block },
           h('div', { style: styles.entryTitle }, '导出完成'),
-          h('div', { style: styles.muted }, '目录：' + (b.outDir || '') + '，' + (b.fileCount || 0) + ' 个文件，约 ' + Math.round((b.bytes || 0) / 1024) + ' KB'),
+          h('div', { style: styles.muted }, '导出到：'),
+          dirLink(b.outDir),
+          h('div', { style: styles.muted }, (b.fileCount || 0) + ' 个文件，约 ' + Math.round((b.bytes || 0) / 1024) + ' KB'),
           h('div', { style: styles.muted }, '插件 ' + (b.bundles || 0) + ' 个；配置条目 ' + (b.settingsNamespaces || 0) + ' 条；会话 ' + (b.sessions || 0) + ' 个；附件 ' + (b.attachments || 0) + ' 个。'),
           (b.notes && b.notes.length)
             ? h('div', { style: styles.detail }, '要注意：\n' + b.notes.join('\n'))
@@ -3028,7 +3053,8 @@ window.__ModuleLoader__.load({
         stageRows.push(h('div', { key: 'r-apply', style: styles.block },
           h('div', { style: styles.entryTitle }, ap.ok ? '注入完成' : '注入有问题'),
           ap.failed ? h('div', { style: styles.error }, '有 ' + ap.failed + ' 项失败。') : null,
-          ap.snapshotDir ? h('div', { style: styles.muted }, '快照：' + ap.snapshotDir) : null,
+          ap.snapshotDir ? h('div', { style: styles.muted }, '快照（点开可以看到备份了什么）：') : null,
+          ap.snapshotDir ? dirLink(ap.snapshotDir) : null,
           (ap.notes && ap.notes.length) ? h('div', { style: styles.detail }, ap.notes.join('\n')) : null,
           soul.confirmRollback
             ? h('div', { style: { marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' } },
