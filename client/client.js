@@ -2862,13 +2862,18 @@ window.__ModuleLoader__.load({
         });
       };
 
-      var modeButton = function (value, text) {
-        var on = soul.sessions === value;
-        return h('button', {
-          type: 'button',
-          onClick: function () { patch({ sessions: value }); },
-          style: on ? Object.assign({}, styles.btn, { fontWeight: 600 }) : styles.btn,
-        }, on ? '● ' + text : '○ ' + text);
+      // 三档会话用**单选项行**，和这一页其它选择（复选项行）同一副样子。
+      // 不自己造分段按钮：那会让这一组看起来像另一个页面（2026-11-17 用户指出）。
+      var modeRow = function (value, text) {
+        return h('label', { key: 'mode-' + value, style: styles.toggleRow },
+          h('input', {
+            type: 'radio',
+            name: 'soul-sessions',
+            checked: soul.sessions === value,
+            onChange: function () { patch({ sessions: value }); },
+          }),
+          text,
+        );
       };
 
       var rows = [];
@@ -2877,10 +2882,10 @@ window.__ModuleLoader__.load({
       rows.push(h('div', { key: 'soul-export', style: styles.block },
         h('div', { style: styles.entryTitle }, '导出这台电脑的灵魂'),
         h('div', { style: styles.muted }, '带走：插件组合与版本、各插件生效配置、两层补丁、AGENTS.md、技能、预设。插件本身按记录重装；本地源插件打成包一起走。'),
-        h('div', { style: { marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' } },
-          modeButton('none', '不带会话'),
-          modeButton('recent', '最近 20 个会话'),
-          modeButton('all', '全部会话'),
+        h('div', { style: { marginTop: 6 } },
+          modeRow('none', '不带会话（只有配置和插件）'),
+          modeRow('recent', '带最近 20 个会话'),
+          modeRow('all', '带全部会话（可能几个 GB）'),
         ),
         h('label', { style: styles.toggleRow },
           h('input', {
@@ -2896,7 +2901,7 @@ window.__ModuleLoader__.load({
             type: 'button',
             disabled: Boolean(soul.busy),
             onClick: doExport,
-            style: styles.btn,
+            style: styles.btnPrimary,
           }, soul.busy === '导出中' ? '导出中…' : '开始导出'),
         ),
       ));
@@ -2975,11 +2980,11 @@ window.__ModuleLoader__.load({
             : null,
           soul.confirmApply
             ? h('div', { style: { marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' } },
-                h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doApply, style: styles.btn }, soul.busy === '执行中' ? '执行中…' : '确认执行'),
+                h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doApply, style: styles.btnPrimary }, soul.busy === '执行中' ? '执行中…' : '确认执行'),
                 h('button', { type: 'button', onClick: function () { patch({ confirmApply: false }); }, style: styles.btn }, '取消'),
               )
             : h('div', { style: { marginTop: 10 } },
-                h('button', { type: 'button', onClick: function () { patch({ confirmApply: true }); }, style: styles.btn }, '执行注入…'),
+                h('button', { type: 'button', onClick: function () { patch({ confirmApply: true }); }, style: styles.btnPrimary }, '执行注入…'),
               ),
           h('div', { style: styles.muted }, '执行会改配置、装插件、替换补丁与文件。执行前会自动快照。'),
         ));
@@ -2993,11 +2998,11 @@ window.__ModuleLoader__.load({
           (ap.notes && ap.notes.length) ? h('div', { style: styles.detail }, ap.notes.join('\n')) : null,
           soul.confirmRollback
             ? h('div', { style: { marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' } },
-                h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doRollback, style: styles.btn }, soul.busy === '回滚中' ? '回滚中…' : '确认回滚'),
+                h('button', { type: 'button', disabled: Boolean(soul.busy), onClick: doRollback, style: styles.btnDanger }, soul.busy === '回滚中' ? '回滚中…' : '确认回滚'),
                 h('button', { type: 'button', onClick: function () { patch({ confirmRollback: false }); }, style: styles.btn }, '取消'),
               )
             : h('div', { style: { marginTop: 10 } },
-                h('button', { type: 'button', disabled: !ap.snapshotDir, onClick: function () { patch({ confirmRollback: true }); }, style: styles.btn }, '回滚这次注入…'),
+                h('button', { type: 'button', disabled: !ap.snapshotDir, onClick: function () { patch({ confirmRollback: true }); }, style: styles.btnDanger }, '回滚这次注入…'),
               ),
         ));
       }
