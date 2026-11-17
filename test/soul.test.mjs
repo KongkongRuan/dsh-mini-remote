@@ -583,3 +583,210 @@ test('本地插件：真跑一次 npm pack（没有包管理器就跳过）', as
     assert.ok(info.size > 0, 'tarball 不能是空文件')
   })
 })
+
+// ---------------------------------------------------------------------------
+// P3：会话日志（多帧 zstd）与附件
+// ---------------------------------------------------------------------------
+
+import { zstdCompressSync, zstdDecompressSync } from 'node:zlib'
+import { firstFrameLength, readHeader, rewriteHeaderCwd, projectKeyOf } from '../lib/soul/session-log.js'
+import { applyPathMap } from '../lib/soul/sessions.js'
+
+/** 造一份"头部 + 若干事件"的多帧日志，模拟真实会话文件。 */
+function makeSessionLog(cwd, events = ['{"type":"user/message"}', '{"type":"turn/end"}']) {
+  const header = zstdCompressSync(Buffer.from(`${JSON.stringify({ type: 'session', version: 4, id: 's1', cwd })}\n`, 'utf8'))
+  const frames = events.map((line) => zstdCompressSync(Buffer.from(`${line}\n`, 'utf8')))
+  return { buffer: Buffer.concat([header, ...frames]), frameCount: 1 + frames.length }
+}
+
+test('会话日志：能认出多帧，第一帧就是头部', () => {
+  const { buffer } = makeSessionLog('C:\\old\\place')
+  const length = firstFrameLength(buffer)
+  assert.ok(length > 0 && length < buffer.length, '第一帧应当只是开头一段')
+  const header = readHeader(buffer)
+  assert.equal(header.cwd, 'C:\\old\\place')
+  assert.equal(header.type, 'session')
+})
+
+test('会话日志：只改第一帧的 cwd，后面几帧逐字节不变', () => {
+  const { buffer } = makeSessionLog('C:\\old\\place')
+  const firstLen = firstFrameLength(buffer)
+  const tailBefore = buffer.subarray(firstLen)
+
+  const result = rewriteHeaderCwd(buffer, 'D:\\new\\place')
+  assert.equal(result.ok, true, result.reason)
+  assert.equal(readHeader(result.buffer).cwd, 'D:\\new\\place')
+
+  const newFirstLen = firstFrameLength(result.buffer)
+  const tailAfter = result.buffer.subarray(newFirstLen)
+  assert.deepEqual(tailAfter, tailBefore, '第二帧起必须原样保留')
+
+  // 第二帧仍然能独立解开
+  const second = zstdDecompressSync(tailAfter).toString('utf8')
+  assert.match(second, /user\/message/)
+})
+
+test('会话日志：cwd 已经一样就不动它', () => {
+  const { buffer } = makeSessionLog('C:\\same')
+  const result = rewriteHeaderCwd(buffer, 'C:\\same')
+  assert.equal(result.ok, true)
+  assert.equal(result.reason, '无需改写')
+  assert.deepEqual(result.buffer, buffer)
+})
+
+test('会话目录名：按真实规则由路径生成', () => {
+  assert.equal(projectKeyOf('C:\\Users\\WINDOWS'), '--C-Users-WINDOWS--')
+  assert.equal(projectKeyOf('D:\\X\\X'), '--D-X-X--')
+  assert.equal(projectKeyOf('C:\\Users\\WINDOWS\\.dsh\\profiles\\desktop'), '--C-Users-WINDOWS-.dsh-profiles-desktop--')
+  assert.equal(projectKeyOf('I:\\极简遥控器\\极简遥控器\\'), '--I-极简遥控器-极简遥控器--')
+  assert.equal(projectKeyOf(''), null)
+})
+
+test('路径映射：按段边界，不会把 极简遥控器2 当成 极简遥控器', () => {
+  const maps = [{ oldPrefix: 'I:\\极简遥控器', newPrefix: 'D:\\work' }]
+  assert.equal(applyPathMap('I:\\极简遥控器\\a\\b', maps), 'D:/work/a/b')
+  assert.equal(applyPathMap('I:\\极简遥控器2\\a', maps), 'I:\\极简遥控器2\\a', '多一个字符就是另一个目录')
+  assert.equal(applyPathMap('I:\\极简遥控器', maps), 'D:/work')
+  assert.equal(applyPathMap('E:\\other', maps), 'E:\\other', '没命中就保持原样')
+})
+
+test('P3：两端版本不同时，会话整项跳过并说清原因', async () => {
+  await withTemp(async (root) => {
+    const home = join(root, 'home')
+    await mkdir(join(home, 'profiles', 'web'), { recursive: true })
+    await writeFile(join(home, 'profiles', 'web', 'package.json'), '{}', 'utf8')
+
+    const pack = join(root, 'pack')
+    await makePack(pack, { bundles: [], namespaces: {} })
+    // 来源版本写成另一个版本
+    const manifest = JSON.parse(await readFile(join(pack, 'manifest.json'), 'utf8'))
+    manifest.source.dshVersion = '0.1.0-ancient'
+    manifest.includes = { structure: true, config: true, sessions: true }
+    await mkdir(join(pack, 'sessions/--C-old--/session-a'), { recursive: true })
+    await writeFile(
+      join(pack, 'sessions/index.json'),
+      JSON.stringify({ count: 1, bytes: 10, sessions: [{ projectKey: '--C-old--', sessionId: 'session-a', cwd: 'C:\\old', files: [] }] }),
+      'utf8',
+    )
+    await writeFile(join(pack, 'manifest.json'), JSON.stringify(manifest), 'utf8')
+    const { finalizePack } = await import('../lib/soul/pack.js')
+    await finalizePack(pack, manifest)
+
+    const { ctx } = fakeCtxWithInstall({ bundles: [] }) // 这份假 ctx 的运行时版本是 0.2.2-rc.3
+    const plan = await planSoul({ packDir: pack, ctx, home, profile: 'web' })
+    const item = plan.plan.items.find((i) => i.id === 'sessions:version')
+    assert.ok(item, '要有一条版本不一致的说明')
+    assert.equal(item.action, 'skip')
+    assert.match(item.detail, /版本不同/)
+    assert.equal(plan.plan.items.filter((i) => i.kind === 'session' && i.action === 'create').length, 0)
+  })
+})
+
+test('P3：目标机已有同 id 会话就跳过，绝不覆盖', async () => {
+  await withTemp(async (root) => {
+    const home = join(root, 'home')
+    await mkdir(join(home, 'profiles', 'web'), { recursive: true })
+    await writeFile(join(home, 'profiles', 'web', 'package.json'), '{}', 'utf8')
+    // 目标机已有同名会话
+    await mkdir(join(home, 'sessions', '--C-old--', 'session-a'), { recursive: true })
+    await writeFile(join(home, 'sessions', '--C-old--', 'session-a', 'session.jsonl.zstd'), 'mine', 'utf8')
+
+    const pack = join(root, 'pack')
+    const { buffer } = makeSessionLog('C:\\old')
+    await makePack(pack, { bundles: [], namespaces: {} })
+    await mkdir(join(pack, 'sessions/--C-old--/session-a'), { recursive: true })
+    await writeFile(join(pack, 'sessions/--C-old--/session-a/session.jsonl.zstd'), buffer)
+    await writeFile(
+      join(pack, 'sessions/index.json'),
+      JSON.stringify({ count: 1, bytes: buffer.length, sessions: [{ projectKey: '--C-old--', sessionId: 'session-a', cwd: 'C:\\old', files: ['session.jsonl.zstd'] }] }),
+      'utf8',
+    )
+    const { finalizePack } = await import('../lib/soul/pack.js')
+    const manifest = JSON.parse(await readFile(join(pack, 'manifest.json'), 'utf8'))
+    await finalizePack(pack, manifest)
+
+    const { ctx } = fakeCtxWithInstall({ bundles: [] })
+    const plan = await planSoul({ packDir: pack, ctx, home, profile: 'web' })
+    const item = plan.plan.items.find((i) => i.target === '--C-old--/session-a')
+    assert.equal(item.action, 'skip')
+    assert.match(item.detail, /不覆盖/)
+  })
+})
+
+test('P3：导入会话时按映射改 cwd，并落到新目录名下', async () => {
+  await withTemp(async (root) => {
+    const home = join(root, 'home')
+    await mkdir(join(home, 'profiles', 'web'), { recursive: true })
+    await writeFile(join(home, 'profiles', 'web', 'package.json'), '{}', 'utf8')
+
+    const { buffer } = makeSessionLog('I:\\旧盘\\项目')
+    const pack = join(root, 'pack')
+    await makePack(pack, { bundles: [], namespaces: {} })
+    await mkdir(join(pack, 'sessions/--I-旧盘-项目--/session-a'), { recursive: true })
+    await writeFile(join(pack, 'sessions/--I-旧盘-项目--/session-a/session.jsonl.zstd'), buffer)
+    await writeFile(
+      join(pack, 'sessions/index.json'),
+      JSON.stringify({
+        count: 1,
+        bytes: buffer.length,
+        sessions: [{ projectKey: '--I-旧盘-项目--', sessionId: 'session-a', cwd: 'I:\\旧盘\\项目', files: ['session.jsonl.zstd'] }],
+      }),
+      'utf8',
+    )
+    const { finalizePack } = await import('../lib/soul/pack.js')
+    const manifest = JSON.parse(await readFile(join(pack, 'manifest.json'), 'utf8'))
+    await finalizePack(pack, manifest)
+
+    const { ctx } = fakeCtxWithInstall({ bundles: [] })
+    const maps = [{ oldPrefix: 'I:\\旧盘', newPrefix: 'D:\\new' }]
+    const plan = await planSoul({ packDir: pack, ctx, home, profile: 'web', pathMap: maps })
+    assert.equal(plan.ok, true, plan.error)
+    const applied = await applySoul({ packDir: pack, ctx, home, profile: 'web', planId: plan.planId, confirm: true, pathMap: maps })
+    assert.equal(applied.ok, true, JSON.stringify(applied.notes))
+
+    const destLog = join(home, 'sessions', projectKeyOf('D:\\new\\项目'), 'session-a', 'session.jsonl.zstd')
+    const written = await readFile(destLog)
+    assert.equal(readHeader(written).cwd.replace(/\\/g, '/'), 'D:/new/项目')
+
+    // 回滚要把这次新建的会话删掉
+    const back = await rollbackSoul({ ctx, snapshotDir: applied.snapshotDir })
+    assert.equal(back.ok, true, JSON.stringify(back.failed))
+    const { existsSync } = await import('node:fs')
+    assert.equal(existsSync(destLog), false, '回滚后不该留下会话文件')
+  })
+})
+
+test('P3：附件按内容寻址补齐，已有的不重写；回滚只删新增', async () => {
+  await withTemp(async (root) => {
+    const home = join(root, 'home')
+    await mkdir(join(home, 'profiles', 'web'), { recursive: true })
+    await writeFile(join(home, 'profiles', 'web', 'package.json'), '{}', 'utf8')
+    // 目标机已经有一个附件对象
+    await mkdir(join(home, 'attachments/v1/objects/aa'), { recursive: true })
+    await writeFile(join(home, 'attachments/v1/objects/aa/hash1'), 'old', 'utf8')
+
+    const pack = join(root, 'pack')
+    await makePack(pack, { bundles: [], namespaces: {} })
+    await mkdir(join(pack, 'attachments/v1/objects/aa'), { recursive: true })
+    await mkdir(join(pack, 'attachments/v1/objects/bb'), { recursive: true })
+    await writeFile(join(pack, 'attachments/v1/objects/aa/hash1'), 'new', 'utf8')
+    await writeFile(join(pack, 'attachments/v1/objects/bb/hash2'), 'brand-new', 'utf8')
+    const { finalizePack } = await import('../lib/soul/pack.js')
+    const manifest = JSON.parse(await readFile(join(pack, 'manifest.json'), 'utf8'))
+    await finalizePack(pack, manifest)
+
+    const { ctx } = fakeCtxWithInstall({ bundles: [] })
+    const plan = await planSoul({ packDir: pack, ctx, home, profile: 'web' })
+    const applied = await applySoul({ packDir: pack, ctx, home, profile: 'web', planId: plan.planId, confirm: true })
+    assert.equal(applied.ok, true, JSON.stringify(applied.notes))
+
+    assert.equal(await readFile(join(home, 'attachments/v1/objects/aa/hash1'), 'utf8'), 'old', '已存在的不覆盖')
+    assert.equal(await readFile(join(home, 'attachments/v1/objects/bb/hash2'), 'utf8'), 'brand-new')
+
+    const back = await rollbackSoul({ ctx, snapshotDir: applied.snapshotDir })
+    assert.equal(back.ok, true, JSON.stringify(back.failed))
+    const { existsSync } = await import('node:fs')
+    assert.equal(existsSync(join(home, 'attachments/v1/objects/bb/hash2')), false, '新增的要删掉')
+    assert.equal(existsSync(join(home, 'attachments/v1/objects/aa/hash1')), true, '原有的不能动')
+  })
+})
