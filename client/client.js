@@ -4500,7 +4500,8 @@ window.__ModuleLoader__.load({
         st && st.lastError ? h('div', { style: styles.error }, '最后一次错误：' + st.lastError) : null,
         a && a.error ? h('div', { style: styles.error }, a.error) : null,
         // 这台电脑的名字：两台以上 B 端时，A 那边靠它区分（2026-11-18 用户要求）。
-        h('div', { style: styles.muted, marginTop: 10 }, '这台电脑的名字（给 A 端看的称呼）'),
+        // 注意：marginTop 要放进 style 里。写成 {style: styles.muted, marginTop: 10} 是**无效**的。
+        h('div', { style: Object.assign({}, styles.muted, { marginTop: 14 }) }, '这台电脑的名字（给 A 端看的称呼）'),
         h('input', {
           value: a ? a.name : '',
           spellCheck: false,
@@ -4510,7 +4511,7 @@ window.__ModuleLoader__.load({
           onChange: function (e) { a.setName(e.target.value); },
           onBlur: function (e) { a.saveName(e.target.value); },
         }),
-        h('div', { style: styles.muted, marginTop: 10 }, 'A 的地址（例如 http://100.x.x.x:3090）'),
+        h('div', { style: Object.assign({}, styles.muted, { marginTop: 14 }) }, 'A 的地址（例如 http://100.x.x.x:3090）'),
         h('input', {
           value: a ? a.url : '',
           spellCheck: false,
@@ -4518,7 +4519,7 @@ window.__ModuleLoader__.load({
           style: styles.monoInput,
           onChange: function (e) { a.setUrl(e.target.value); },
         }),
-        h('div', { style: styles.muted, marginTop: 10 }, 'A 端设置页生成的 6 位配对码'),
+        h('div', { style: Object.assign({}, styles.muted, { marginTop: 14 }) }, 'A 端设置页生成的 6 位配对码'),
         h('input', {
           value: a ? a.code : '',
           inputMode: 'numeric',
@@ -4527,7 +4528,7 @@ window.__ModuleLoader__.load({
           style: styles.monoInput,
           onChange: function (e) { a.setCode(e.target.value); },
         }),
-        h('div', { style: styles.muted, marginTop: 10 }, '授权给 A 的文件夹，一行一个'),
+        h('div', { style: Object.assign({}, styles.muted, { marginTop: 14 }) }, '授权给 A 的文件夹，一行一个'),
         h('textarea', {
           value: a ? a.roots : '',
           spellCheck: false,

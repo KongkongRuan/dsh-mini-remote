@@ -1624,3 +1624,15 @@ test('B 端：可以给自己的电脑起名字，名字随心跳带给 A', asyn
   assert.match(idx, /name: bAgentName\(\)/, '配对时用名字')
   assert.match(hub, /wantedName !== agent\.name/, '心跳里要能改名')
 })
+
+test('B 端面板：小标题的外边距必须写在 style 里', async () => {
+  const { readFileSync } = await import('node:fs')
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+  // { style: styles.muted, marginTop: 10 } 里 marginTop 不是样式，会被 React 丢掉
+  for (const label of ['这台电脑的名字（给 A 端看的称呼）', 'A 的地址（例如 http://100.x.x.x:3090）', 'A 端设置页生成的 6 位配对码', '授权给 A 的文件夹，一行一个']) {
+    const at = client.indexOf(label)
+    assert.ok(at > 0, '要能找到这个标题：' + label)
+    const near = client.slice(Math.max(0, at - 120), at)
+    assert.ok(near.includes('Object.assign({}, styles.muted, { marginTop: 14 })'), '这个标题的间距要写在 style 里：' + label)
+  }
+})
