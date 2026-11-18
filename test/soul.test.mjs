@@ -1629,6 +1629,10 @@ test('B 端面板：小标题的外边距必须写在 style 里', async () => {
   const { readFileSync } = await import('node:fs')
   const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
   // { style: styles.muted, marginTop: 10 } 里 marginTop 不是样式，会被 React 丢掉
+  // 全文件扫一遍：`{ style: styles.muted, marginTop: N }` 里 marginTop 会被丢掉。
+  const offenders = client.split('\n').filter((line) => /style: styles\.muted, marginTop/.test(line) && !line.includes('//'))
+  assert.deepEqual(offenders, [], '这些行的 marginTop 不会生效')
+
   for (const label of ['这台电脑的名字（给 A 端看的称呼）', 'A 的地址（例如 http://100.x.x.x:3090）', 'A 端设置页生成的 6 位配对码', '授权给 A 的文件夹，一行一个']) {
     const at = client.indexOf(label)
     assert.ok(at > 0, '要能找到这个标题：' + label)

@@ -3706,7 +3706,7 @@ window.__ModuleLoader__.load({
         open
           ? (rows.length
             ? h('div', null, rows)
-            : (d.error ? null : h('div', { style: styles.muted, marginTop: 10 }, '这台电脑上还没有登记过的设备。')))
+            : (d.error ? null : h('div', { style: Object.assign({}, styles.muted, { marginTop: 10 }) }, '这台电脑上还没有登记过的设备。')))
           : null,
       );
     }
@@ -3834,7 +3834,7 @@ window.__ModuleLoader__.load({
         r.note ? h('div', { style: Object.assign({}, styles.muted, styles.say) }, r.note) : null,
         rows.length
           ? h('div', null, rows)
-          : (r.error ? null : h('div', { style: styles.muted, marginTop: 10 }, '这台电脑还没连过别的电脑。')),
+          : (r.error ? null : h('div', { style: Object.assign({}, styles.muted, { marginTop: 10 }) }, '这台电脑还没连过别的电脑。')),
         h('div', { style: { marginTop: 12 } },
           h('button', { type: 'button', onClick: r.openAdd, style: styles.btn },
             r.add ? '收起这一块' : '添加一台电脑'),
@@ -4430,7 +4430,7 @@ window.__ModuleLoader__.load({
           ? '已开启。生成一个配对码，让 B 端在它自己的设置页里输入；配对后这里会出现那台电脑。'
           : '没开（默认）。B 端连不进来，也拿不到任何文件任务。'),
         on ? presetLine : null,
-        on ? h('div', { style: styles.muted, marginTop: 10 }, 'B 端要填的地址（选一条 B 能访问的）：') : null,
+        on ? h('div', { style: Object.assign({}, styles.muted, { marginTop: 10 }) }, 'B 端要填的地址（选一条 B 能访问的）：') : null,
         on && urls.length
           ? h('div', null, urls.map(function (one) {
             return h('div', { key: one.url, style: styles.detail }, one.label + '：' + one.url);
@@ -4459,7 +4459,7 @@ window.__ModuleLoader__.load({
                   : h('button', { type: 'button', style: styles.btn, disabled: Boolean(a && a.busy), onClick: function () { a.askRevoke(one.id); } }, '撤销'),
               );
             }))
-            : h('div', { style: styles.muted, marginTop: 10 }, '还没有 B 端连过来。'))
+            : h('div', { style: Object.assign({}, styles.muted, { marginTop: 10 }) }, '还没有 B 端连过来。'))
           : null,
         on ? h('div', { style: styles.warn }, 'B 端有文件读、写、文件夹管理、命令和终端；每项由 B 自己开。删除/移动的 confirm 是模型层二次确认，不是人工审批；真正的授权是 B 上的开关。') : null,
       );
@@ -4674,7 +4674,7 @@ window.__ModuleLoader__.load({
               : null,
           );
         }))
-        : h('div', { style: styles.muted, marginTop: 10 }, '还没有 B 项目。');
+        : h('div', { style: Object.assign({}, styles.muted, { marginTop: 10 }) }, '还没有 B 项目。');
 
       var browseModal = null;
       if (a.browse && a.browse.open) {
@@ -5343,7 +5343,7 @@ window.__ModuleLoader__.load({
           }),
           copyButton({ value: info.url, label: '复制地址', copied: copied, copy: copy }),
         ) : null,
-        relay.note ? h('div', { style: styles.muted, marginTop: 8 }, relay.note) : null,
+        relay.note ? h('div', { style: Object.assign({}, styles.muted, { marginTop: 8 }) }, relay.note) : null,
         relay.error ? h('div', { style: styles.error }, relay.error) : null,
         h('div', { style: { marginTop: 8, color: 'var(--dsw-alias-label-tertiary,#8b93a1)', fontSize: 12, lineHeight: 1.6 } },
           '公网入口受 token/Bearer/票据保护；域名对外提供服务前，请确认备案和当地要求。'),
@@ -5766,7 +5766,7 @@ window.__ModuleLoader__.load({
         pending ? h('div', { style: styles.warn },
           '新密码已经存好了，但要重启一次 DSH 才会生效。在那之前手机上用的还是上面这个旧的；'
           + '重启之后，手机上要重新扫一次码。') : null,
-        h('div', { style: styles.muted, marginTop: 14 }, '换一个自己记得住的（至少 12 位）：'),
+        h('div', { style: Object.assign({}, styles.muted, { marginTop: 14 }) }, '换一个自己记得住的（至少 12 位）：'),
         h('div', { style: { display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' } },
           h('input', {
             type: 'text',
