@@ -1603,6 +1603,7 @@ test('同步：后端失败原因要能被前端读到（字段名不能各说�
   // 后端是 reason，前端原来只读 error → 用户看到的是"请求失败（HTTP 400）"
   assert.match(client, /r\.body\.error \|\| r\.body\.reason/, '前端要读 reason')
   assert.match(routes, /error: result\.reason \|\| result\.error/, '后端要把 reason 摊成 error')
-  // 拉取失败要解释"占位文件"这种情况
-  assert.match(routes, /始终保留在此设备|占位/, '要提示 OneDrive 占位文件')
+  // 拉取失败要解释"占位文件"这种情况（提示在 dir-sync 里）
+  const sync = readFileSync(new URL('../lib/soul/dir-sync.js', import.meta.url), 'utf8')
+  assert.match(sync, /始终保留在此设备/, '要提示 OneDrive 占位文件')
 })
