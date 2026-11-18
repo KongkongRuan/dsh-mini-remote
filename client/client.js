@@ -2831,7 +2831,7 @@ window.__ModuleLoader__.load({
                 // 对未注册的 POST 路由，DSH 就是这么回的）。
                 error: (r.status === 404 || r.status === 405)
                   ? '这个功能需要新版本的插件接口，但当前宿主还是旧的：请重启一次 DSH 再试。'
-                  : (r.body && (r.body.error || r.body.verdict)) || ('请求失败（HTTP ' + r.status + '）'),
+                  : (r.body && (r.body.error || r.body.reason || r.body.verdict)) || ('请求失败（HTTP ' + r.status + '）'),
               });
               return null;
             }
@@ -3233,6 +3233,7 @@ window.__ModuleLoader__.load({
           h('div', { style: styles.muted }, pu.skipped ? (pu.reason || '') : ('新增一份：' + (pu.id || '') + '，约 ' + Math.round((pu.bytes || 0) / 1024) + ' KB')),
           (pu.dropped && pu.dropped.length) ? h('div', { style: styles.muted }, '按保留份数清掉了 ' + pu.dropped.length + ' 份旧快照：' + pu.dropped.join('、')) : null,
           (pu.notes && pu.notes.length) ? h('div', { style: styles.detail }, '要注意：\n' + pu.notes.join('\n')) : null,
+          (pu.rootResolved && pu.root) ? h('div', { style: styles.muted }, '你选的是快照那一层，已自动改用同步根目录：' + pu.root) : null,
         ));
       }
       if (syncStage && syncStage.kind === 'pull') {

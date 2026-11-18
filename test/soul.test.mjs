@@ -1563,3 +1563,46 @@ test('B 端面板：连上之前显示"正在连接…"，不要一口断言"还
   // 出错时仍然显示真正的原因，不能被"正在连接"盖住
   assert.match(client, /st && st\.error\s*\n?\s*\? st\.error/)
 })
+
+test('同步根目录：挑到快照那一层也能自动找回去', async () => {
+  await withTemp(async (root) => {
+    const pack = join(root, 'sync', 'snapshots', 'soul-x')
+    await makePack(pack, { bundles: [], namespaces: {} })
+    const { finalizePack } = await import('../lib/soul/pack.js')
+    await finalizePack(pack, { kind: 'soul-export', source: { profile: 'web', dshVersion: '0.2.2-rc.3' }, includes: {}, counts: {} })
+    // 推一次，让远端有索引
+    const { pushToDir, resolveSyncRoot } = await import('../lib/soul/dir-sync.js')
+    // pushToDir 需要包与目标分开，这里直接把快照登记进父目录
+    const target = join(root, 'sync')
+    const adopted = await (await import('../lib/soul/dir-sync.js')).adoptSnapshot({ targetDir: target, id: 'soul-x', dir: pack })
+    assert.equal(adopted.ok, true, adopted.reason)
+
+    const atRoot = await resolveSyncRoot(target)
+    assert.equal(atRoot.kind, 'sync')
+    assert.equal(atRoot.resolved, false)
+
+    const atPack = await resolveSyncRoot(join(target, 'snapshots', 'soul-x'))
+    assert.equal(atPack.kind, 'pack')
+    assert.equal(atPack.root, target, '挑到快照那层要能找回根')
+
+    const atSnaps = await resolveSyncRoot(join(target, 'snapshots'))
+    assert.equal(atSnaps.kind, 'snapshots-dir')
+    assert.equal(atSnaps.root, target)
+
+    const random = await resolveSyncRoot(join(root, 'nowhere'))
+    assert.equal(random.kind, 'unknown')
+    assert.equal(random.resolved, false)
+  })
+})
+
+test('同步：后端失败原因要能被前端读到（字段名不能各说各话）', async () => {
+  const { readFileSync } = await import('node:fs')
+  const routes = readFileSync(new URL('../lib/soul/routes.js', import.meta.url), 'utf8')
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+
+  // 后端是 reason，前端原来只读 error → 用户看到的是"请求失败（HTTP 400）"
+  assert.match(client, /r\.body\.error \|\| r\.body\.reason/, '前端要读 reason')
+  assert.match(routes, /error: result\.reason \|\| result\.error/, '后端要把 reason 摊成 error')
+  // 拉取失败要解释"占位文件"这种情况
+  assert.match(routes, /始终保留在此设备|占位/, '要提示 OneDrive 占位文件')
+})
