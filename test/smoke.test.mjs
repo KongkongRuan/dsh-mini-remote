@@ -3398,3 +3398,17 @@ test('正文里的图片地址：Markdown 的尖括号写法要剥掉', async ()
   // http(s) 原样
   assert.equal(imageSrc('https://example.com/a.png'), 'https://example.com/a.png')
 })
+
+test('镜像：外层会在开头几秒替框里补适配样式', async () => {
+  const { readFileSync } = await import('node:fs')
+  const app = readFileSync(new URL('../lib/page-app.js', import.meta.url), 'utf8')
+  const mirror = readFileSync(new URL('../lib/mirror.js', import.meta.url), 'utf8')
+
+  // 框里那份文档对外暴露 apply，外层才调得到
+  assert.match(mirror, /window\.__miniMirrorAdapt=apply/)
+  // 外层在打开后补几次就停，不做长期轮询
+  assert.match(app, /typeof win\.__miniMirrorAdapt === 'function'/)
+  assert.match(app, /tries > 15/)
+  // 关掉要停，别留一个定时器在后台
+  assert.match(app, /function closeMirror\(\) \{\n    stopMirrorGuard\(\);/)
+})
