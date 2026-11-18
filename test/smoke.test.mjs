@@ -3421,3 +3421,15 @@ test('镜像：长按标题能进诊断模式（真机排查的入口）', async
   assert.match(app, /mirrorUrl\(\) \+ '\?diag=1'/, '长按要带 diag=1 重开')
   assert.match(app, /setTimeout\(function \(\) \{\n        timer = null;/, '要按住才触发，别一点就跳')
 })
+
+test('镜像诊断：版面体检只在 ?diag=1 时注入，且量的是要查的那几样', async () => {
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../lib/mirror.js', import.meta.url), 'utf8')
+  assert.match(src, /diag \? LAYOUT_PROBE \+ DIAG_SCRIPT/, '诊断模式才注入体检')
+  assert.match(src, /kind: 'layout'/)
+  assert.match(src, /matchMedia\('\(max-width: 1023px\)'\)/, '要量窄屏媒体查询是否命中')
+  assert.match(src, /_sidebarCol/, '要量侧栏')
+  assert.match(src, /adoptedStyleSheets/, '要报样式是不是用 adopted 方式挂上的')
+  // 正常路径不能多一个字节
+  assert.match(src, /\(adapt \? ADAPT_CSS \+ ADAPT_GUARD : ''\)/)
+})
