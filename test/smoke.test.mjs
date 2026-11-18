@@ -3412,3 +3412,12 @@ test('镜像：外层会在开头几秒替框里补适配样式', async () => {
   // 关掉要停，别留一个定时器在后台
   assert.match(app, /function closeMirror\(\) \{\n    stopMirrorGuard\(\);/)
 })
+
+test('镜像：长按标题能进诊断模式（真机排查的入口）', async () => {
+  const { readFileSync } = await import('node:fs')
+  const html = readFileSync(new URL('../lib/page.html', import.meta.url), 'utf8')
+  const app = readFileSync(new URL('../lib/page-app.js', import.meta.url), 'utf8')
+  assert.match(html, /id="mirrorTitle"/)
+  assert.match(app, /mirrorUrl\(\) \+ '\?diag=1'/, '长按要带 diag=1 重开')
+  assert.match(app, /setTimeout\(function \(\) \{\n        timer = null;/, '要按住才触发，别一点就跳')
+})
