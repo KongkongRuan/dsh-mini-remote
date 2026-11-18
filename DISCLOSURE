@@ -18,6 +18,32 @@ telemetry, no analytics, and no code that executes on any machine other than
 the one that installed the plugin and the device the owner paired to it.
 
 
+CLASSIFICATION
+----------------------------------------------------------------
+This package is a tool "designed and documented explicitly", in the sense of the
+Acceptable Content section of the npm Open Source Terms:
+
+  "Content containing malicious computer code ... Tools designed and documented
+   explicitly to assist in security research are acceptable, but exploits and
+   malware that use the npm registry as a deployment or delivery vector are not."
+
+To be explicit about which side of that line this package sits on:
+
+- It is not malicious code. It does not self-propagate, does not hide its
+  behaviour, does not hook or modify other processes, and does not persist
+  beyond the plugin's own installation directory.
+- It is not a deployment or delivery vector. The package does not fetch and run
+  third-party code on anyone's machine. The only executable it ships is the FRP
+  client described below, which the owner chooses to run for their own tunnel.
+  The Android application referenced by the project is installed by the owner
+  from a release the project publishes, not delivered through the registry.
+- Every capability that could be mistaken for malicious behaviour is listed
+  below by name, with its switch, its default, and how it is authorised.
+- All security-relevant features are off by default. A fresh install listens on
+  the loopback interface only and accepts no remote device until the machine's
+  owner turns remote access on and pairs a device with a one-time code.
+
+
 CAPABILITIES THAT AUTOMATED SCANNING MAY FLAG
 ----------------------------------------------------------------
 1. Remote command execution.
@@ -88,6 +114,11 @@ credential harvesting, no obfuscated payload, and no mechanism for a third party
 to obtain access without the owner generating a pairing code on the host. It
 does not ship a keylogger, does not read files outside the authorised folders,
 and does not communicate with any server operated by the maintainer.
+
+It is also not a general-purpose tunnelling product sold as a service, and it
+does not ship exploits. If a future version ever gains a capability that could
+be read as an exploit or as a delivery mechanism for someone else's code, it
+will be documented here before it ships.
 
 
 CONTACT

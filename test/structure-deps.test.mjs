@@ -191,7 +191,9 @@ test('发布：双用途声明必须在（contentPolicy + DISCLOSURE），且 DI
   const text = readFileSync(new URL('../DISCLOSURE', import.meta.url), 'utf8')
   assert.ok(text.length > 500, 'DISCLOSURE 要写清楚，不能是占位')
   // 这份文件给 npm 的审核人员看，用语统一英文。
-  for (const must of ['Remote command', 'frpc', 'Apache-2.0', 'authoris', 'pairing', 'dual-use']) {
+  // 这份文件要能对上 npm 条款的用词：「被明确记录的工具」而不是「恶意代码」。
+  for (const must of ['Remote command', 'frpc', 'Apache-2.0', 'authoris', 'pairing', 'dual-use',
+    'Acceptable Content', 'designed and documented explicitly', 'off by default']) {
     assert.ok(text.includes(must), `DISCLOSURE 里要提到：${must}`)
   }
 })
