@@ -1554,3 +1554,12 @@ test('设置页：执行注入要自带清单，不再要求先点"生成计划"
   // "先生成计划再执行"的提示已换掉
   assert.equal(client.includes('顺序：体检 → 生成计划'), false)
 })
+
+test('B 端面板：连上之前显示"正在连接…"，不要一口断言"还没连上"', async () => {
+  const { readFileSync } = await import('node:fs')
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+  assert.match(client, /on \? '正在连接…' : '未开启/, '开启后在连上之前要说正在连接')
+  assert.equal(client.includes("'还没连上 A。（尝试 Ctrl+F5 强制刷新）'"), false, '旧文案要删掉')
+  // 出错时仍然显示真正的原因，不能被"正在连接"盖住
+  assert.match(client, /st && st\.error\s*\n?\s*\? st\.error/)
+})
