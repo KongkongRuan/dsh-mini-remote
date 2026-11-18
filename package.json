@@ -15,6 +15,7 @@
   },
   "files": [
     "lib",
+    "DISCLOSURE",
     "client/client.js",
     "SKILL.md",
     "SKILL-soul.md",
@@ -91,5 +92,8 @@
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.74.0",
     "qrcode": "^1.5.4"
+  },
+  "contentPolicy": {
+    "class": "dual-use"
   }
 }

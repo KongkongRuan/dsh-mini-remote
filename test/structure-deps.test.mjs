@@ -179,3 +179,19 @@ test('版本：package.json 的 version 必须等于 CHANGELOG 最顶上那一�
   assert.match(first[1], /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/,
     `CHANGELOG 那条版本号形状不对：${JSON.stringify(first[1])}（要 x.y.z，预发布就 x.y.z-xxx）`)
 })
+
+test('发布：双用途声明必须在（contentPolicy + DISCLOSURE），且 DISCLOSURE 会被打进包', async () => {
+  const { readFileSync } = await import('node:fs')
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+
+  // npm Dual-Use Content Policy：声明过的包，后续版本不能删掉这两样，否则发布被拒。
+  assert.equal(pkg.contentPolicy && pkg.contentPolicy.class, 'dual-use', 'package.json 要有 contentPolicy.class = dual-use')
+  assert.ok(Array.isArray(pkg.files) && pkg.files.includes('DISCLOSURE'), 'DISCLOSURE 必须在 files 里，否则不会进包')
+
+  const text = readFileSync(new URL('../DISCLOSURE', import.meta.url), 'utf8')
+  assert.ok(text.length > 500, 'DISCLOSURE 要写清楚，不能是占位')
+  // 这份文件给 npm 的审核人员看，用语统一英文。
+  for (const must of ['Remote command', 'frpc', 'Apache-2.0', 'authoris', 'pairing', 'dual-use']) {
+    assert.ok(text.includes(must), `DISCLOSURE 里要提到：${must}`)
+  }
+})
