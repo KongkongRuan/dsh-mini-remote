@@ -1607,3 +1607,20 @@ test('同步：后端失败原因要能被前端读到（字段名不能各说�
   const sync = readFileSync(new URL('../lib/soul/dir-sync.js', import.meta.url), 'utf8')
   assert.match(sync, /始终保留在此设备/, '要提示 OneDrive 占位文件')
 })
+
+test('B 端：可以给自己的电脑起名字，名字随心跳带给 A', async () => {
+  const { readFileSync } = await import('node:fs')
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+  const hub = readFileSync(new URL('../lib/agent-hub.js', import.meta.url), 'utf8')
+  const idx = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
+
+  // 面板里有输入框，并能保存
+  assert.match(client, /这台电脑的名字/, '要有名字输入框')
+  assert.match(client, /saveName: setBAgentName/)
+  assert.match(client, /body: JSON\.stringify\(\{ name: wanted \}\)/, '要存到大端设置')
+
+  // 服务端：设置项、配对时使用、心跳更新
+  assert.match(idx, /agentName: ''/, '要有这个设置项')
+  assert.match(idx, /name: bAgentName\(\)/, '配对时用名字')
+  assert.match(hub, /wantedName !== agent\.name/, '心跳里要能改名')
+})

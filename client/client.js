@@ -703,6 +703,9 @@ window.__ModuleLoader__.load({
       var agentConfirming = agentConfirmState[0];
       var setAgentConfirming = agentConfirmState[1];
       // B 端执行端（这一侧）：地址、配对码、授权目录草稿 + 错误。
+      var bNameState = useState('');
+      var bName = bNameState[0];
+      var setBName = bNameState[1];
       var bUrlState = useState('');
       var bUrl = bUrlState[0];
       var setBUrl = bUrlState[1];
@@ -891,6 +894,7 @@ window.__ModuleLoader__.load({
               setInfo(r.body);
               setManualPublicUrl(typeof r.body.manualPublicUrl === 'string' ? r.body.manualPublicUrl : '');
               if (r.body.bAgent) {
+                setBName(String(r.body.bAgent.name || ''));
                 setBUrl(r.body.bAgent.url || '');
                 setBRoots((r.body.bAgent.roots || []).join('\n'));
                 setBAllowWrite(Boolean(r.body.bAgent.allowWrite));
@@ -2194,6 +2198,34 @@ window.__ModuleLoader__.load({
       };
 
       /** B 端执行端：执行命令权限。 */
+      /** 改名字：和权限开关一样走 options 接口；失焦时保存，避免每敲一个字都发请求。 */
+      var setBAgentName = function (value) {
+        var wanted = String(value || '').trim();
+        setBName(wanted);
+        fetch(B_AGENT_OPTIONS_PATH, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name: wanted }),
+        })
+          .then(function (res) {
+            return res.json().then(
+              function (body) { return { status: res.status, body: body }; },
+              function () { return { status: res.status, body: null }; },
+            );
+          })
+          .then(function (r) {
+            if (r.body && r.body.ok && r.body.bAgent) {
+              setInfo(function (prev) { return Object.assign({}, prev || {}, { bAgent: r.body.bAgent }); });
+              setBName(String(r.body.bAgent.name || ''));
+            } else {
+              setBError((r.body && r.body.error) || ('保存名字失败：HTTP ' + r.status));
+            }
+          })
+          .catch(function (err) {
+            setBError('保存名字失败：' + ((err && err.message) || String(err)));
+          });
+      };
+
       var setBAgentShell = function (enabled) {
         if (busy) return;
         setBusy(true);
@@ -2489,6 +2521,9 @@ window.__ModuleLoader__.load({
           // B 端这一侧：作为执行端。地址/码/目录都是本机草稿，token 永远不回显。
           toggle: toggleBAgent,
           pair: pairBAgent,
+          name: bName,
+          setName: setBName,
+          saveName: setBAgentName,
           url: bUrl,
           code: bCode,
           roots: bRoots,
@@ -4464,6 +4499,17 @@ window.__ModuleLoader__.load({
         h('div', { style: styles.muted }, pollText),
         st && st.lastError ? h('div', { style: styles.error }, '最后一次错误：' + st.lastError) : null,
         a && a.error ? h('div', { style: styles.error }, a.error) : null,
+        // 这台电脑的名字：两台以上 B 端时，A 那边靠它区分（2026-11-18 用户要求）。
+        h('div', { style: styles.muted, marginTop: 10 }, '这台电脑的名字（给 A 端看的称呼）'),
+        h('input', {
+          value: a ? a.name : '',
+          spellCheck: false,
+          maxLength: 40,
+          placeholder: (st && st.effectiveName) ? st.effectiveName : '不填就用这台电脑的主机名',
+          style: styles.input,
+          onChange: function (e) { a.setName(e.target.value); },
+          onBlur: function (e) { a.saveName(e.target.value); },
+        }),
         h('div', { style: styles.muted, marginTop: 10 }, 'A 的地址（例如 http://100.x.x.x:3090）'),
         h('input', {
           value: a ? a.url : '',
