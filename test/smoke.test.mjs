@@ -3433,3 +3433,12 @@ test('镜像诊断：版面体检只在 ?diag=1 时注入，且量的是要查�
   // 正常路径不能多一个字节
   assert.match(src, /\(adapt \? ADAPT_CSS \+ ADAPT_GUARD : ''\)/)
 })
+
+test('镜像：外层会自己量框里的版面并上报', async () => {
+  const { readFileSync } = await import('node:fs')
+  const app = readFileSync(new URL('../lib/page-app.js', import.meta.url), 'utf8')
+  assert.match(app, /kind: 'parent-layout'/)
+  assert.match(app, /contentDocument/)
+  assert.match(app, /mini\/api\/mirror-diag/, '要发到诊断端点')
+  assert.match(app, /probeMirrorLayout\(\);\n  \}/, '打开镜像时就要量')
+})
