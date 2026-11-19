@@ -1738,3 +1738,36 @@ test('版本门禁：Node 大版本不一致算硬拦；插件版本差异算软
     assert.ok(allowed.plan.items.length > 0, '放行后要真的有计划')
   })
 })
+
+test('插件自更新：B 主动问版本、只取包不代装', async () => {
+  const { readFileSync } = await import('node:fs')
+  const hub = readFileSync(new URL('../lib/agent-hub.js', import.meta.url), 'utf8')
+  const idx = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+
+  // A 端只提供版本与包（读），装在 B 上由人执行命令
+  assert.match(hub, /sub === 'self' && method === 'GET'/, 'A 要有 self 元信息端点')
+  assert.match(hub, /sub === 'self\.tgz' && method === 'GET'/, 'A 要能把包发出去')
+  assert.match(hub, /authenticate\(bearer\(req\)\)/, '两条都要 B 的凭据')
+
+  // B 端：检查 / 取包，且不自己装
+  assert.match(idx, /b-agent\/self-update/)
+  assert.match(idx, /compareVersions\(remote, local\) > 0/, '要比较版本')
+  assert.match(idx, /command: `dsh plugin --profile <你的档案> add/, '只给命令，不代执行')
+
+  // 界面：B 面板有检查与取回按钮
+  assert.match(client, /检查 A 上的版本/)
+  assert.match(client, /'取回 ' \+ a\.selfUpdateInfo\.remote/)
+})
+
+test('版本比较：预发布低于同号正式版', async () => {
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
+  const start = src.indexOf('function compareVersions(')
+  const end = src.indexOf('\n}', start) + 2
+  const fn = new Function(`${src.slice(start, end)}\nreturn compareVersions`)()
+  assert.ok(fn('0.3.2', '0.3.1') > 0)
+  assert.ok(fn('0.3.1', '0.3.1') === 0)
+  assert.ok(fn('0.3.1-rc.1', '0.3.1') < 0, '预发布低于正式版')
+  assert.ok(fn('0.4.0', '0.3.9') > 0)
+})

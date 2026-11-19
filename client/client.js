@@ -612,6 +612,7 @@ window.__ModuleLoader__.load({
         errorAt: null,
         prefsLoaded: false,
         acceptPluginVersions: false,
+        selfUpdate: null,
         prefsStatus: '',
         sessions: 'none',
         attachments: false,
@@ -2227,6 +2228,41 @@ window.__ModuleLoader__.load({
           });
       };
 
+      /**
+       * 问 A 上装的是哪一版（action='check'），或者把它那一版取回来（action='download'）。
+       *
+       * **方向是 B 主动**：A 只提供版本与包，不替这台电脑装东西。真正安装仍由用户在
+       * 这台机器上执行一次命令——那是唯一能在插件自我替换时不把 DSH 弄坏的方式。
+       */
+      /** 版本那一行后面跟的说明。没有结果就返回空串，不要占地方。 */
+      var updText = function (info) {
+        if (!info) return '';
+        if (info.error) return '';
+        if (info.newer) return '（A 上是 ' + info.remote + '，可以更新）';
+        if (info.remote) return '（A 上也是 ' + info.remote + '，已是最新）';
+        return '';
+      };
+
+      var bSelfUpdate = function (action) {
+        patch({ busy: action === 'download' ? '取包中' : '检查中', selfUpdate: null });
+        fetch('/mini-remote/b-agent/self-update', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ action: action }),
+        })
+          .then(function (res) {
+            return res.json().then(function (body) { return { status: res.status, body: body }; },
+              function () { return { status: res.status, body: null }; });
+          })
+          .then(function (r) {
+            if (r.body && r.body.ok) patch({ busy: '', selfUpdate: r.body });
+            else patch({ busy: '', selfUpdate: { error: (r.body && r.body.error) || ('HTTP ' + r.status) } });
+          })
+          .catch(function (err) {
+            patch({ busy: '', selfUpdate: { error: (err && err.message) || String(err) } });
+          });
+      };
+
       var setBAgentShell = function (enabled) {
         if (busy) return;
         setBusy(true);
@@ -2522,6 +2558,8 @@ window.__ModuleLoader__.load({
           // B 端这一侧：作为执行端。地址/码/目录都是本机草稿，token 永远不回显。
           toggle: toggleBAgent,
           pair: pairBAgent,
+          selfUpdate: bSelfUpdate,
+          selfUpdateInfo: soul.selfUpdate,
           name: bName,
           setName: setBName,
           saveName: setBAgentName,
@@ -4528,6 +4566,33 @@ window.__ModuleLoader__.load({
         ),
         h('div', { style: on ? styles.detail : styles.muted }, status),
         h('div', { style: styles.muted }, pollText),
+        // 插件版本（2026-11-19）：本机是多少、A 上是多少，差着就给一个"取回来"的按钮。
+        h('div', { style: styles.muted },
+          '插件版本：本机 ' + ((st && st.version) || '未知')
+          + (updText(a && a.selfUpdateInfo) ? '　' + updText(a && a.selfUpdateInfo) : '')),
+        h('div', { style: { marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap' } },
+          h('button', {
+            type: 'button',
+            disabled: Boolean(a && a.busy) || !Boolean(st && st.url),
+            onClick: function () { a.selfUpdate('check'); },
+            style: styles.btn,
+          }, '检查 A 上的版本'),
+          (a && a.selfUpdateInfo && a.selfUpdateInfo.newer)
+            ? h('button', {
+                type: 'button',
+                disabled: Boolean(a && a.busy),
+                onClick: function () { a.selfUpdate('download'); },
+                style: styles.btnPrimary,
+              }, '取回 ' + a.selfUpdateInfo.remote)
+            : null,
+        ),
+        (a && a.selfUpdateInfo && a.selfUpdateInfo.file)
+          ? h('div', { style: styles.detail },
+              '已取回到：' + a.selfUpdateInfo.file + '\n在终端执行：' + a.selfUpdateInfo.command + '\n装完重启 DSH。')
+          : null,
+        (a && a.selfUpdateInfo && a.selfUpdateInfo.error)
+          ? h('div', { style: styles.error }, '没查到：' + a.selfUpdateInfo.error)
+          : null,
         st && st.lastError ? h('div', { style: styles.error }, '最后一次错误：' + st.lastError) : null,
         a && a.error ? h('div', { style: styles.error }, a.error) : null,
         // 这台电脑的名字：两台以上 B 端时，A 那边靠它区分（2026-11-18 用户要求）。
