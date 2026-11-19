@@ -705,6 +705,10 @@ window.__ModuleLoader__.load({
       var agentConfirming = agentConfirmState[0];
       var setAgentConfirming = agentConfirmState[1];
       // B 端执行端（这一侧）：地址、配对码、授权目录草稿 + 错误。
+      // 插件自更新的结果：住在组件作用域（bAgentBlock 要用），不放 soulBlock 里。
+      var bUpdateState = useState(null);
+      var bUpdate = bUpdateState[0];
+      var setBUpdate = bUpdateState[1];
       var bNameState = useState('');
       var bName = bNameState[0];
       var setBName = bNameState[1];
@@ -2234,17 +2238,10 @@ window.__ModuleLoader__.load({
        * **方向是 B 主动**：A 只提供版本与包，不替这台电脑装东西。真正安装仍由用户在
        * 这台机器上执行一次命令——那是唯一能在插件自我替换时不把 DSH 弄坏的方式。
        */
-      /** 版本那一行后面跟的说明。没有结果就返回空串，不要占地方。 */
-      var updText = function (info) {
-        if (!info) return '';
-        if (info.error) return '';
-        if (info.newer) return '（A 上是 ' + info.remote + '，可以更新）';
-        if (info.remote) return '（A 上也是 ' + info.remote + '，已是最新）';
-        return '';
-      };
-
       var bSelfUpdate = function (action) {
-        patch({ busy: action === 'download' ? '取包中' : '检查中', selfUpdate: null });
+        setBusy(true);
+        setBError(null);
+        setBUpdate(null);
         fetch('/mini-remote/b-agent/self-update', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
@@ -2255,11 +2252,13 @@ window.__ModuleLoader__.load({
               function () { return { status: res.status, body: null }; });
           })
           .then(function (r) {
-            if (r.body && r.body.ok) patch({ busy: '', selfUpdate: r.body });
-            else patch({ busy: '', selfUpdate: { error: (r.body && r.body.error) || ('HTTP ' + r.status) } });
+            setBusy(false);
+            if (r.body && r.body.ok) setBUpdate(r.body);
+            else setBUpdate({ error: (r.body && r.body.error) || ('HTTP ' + r.status) });
           })
           .catch(function (err) {
-            patch({ busy: '', selfUpdate: { error: (err && err.message) || String(err) } });
+            setBusy(false);
+            setBUpdate({ error: (err && err.message) || String(err) });
           });
       };
 
@@ -2559,7 +2558,7 @@ window.__ModuleLoader__.load({
           toggle: toggleBAgent,
           pair: pairBAgent,
           selfUpdate: bSelfUpdate,
-          selfUpdateInfo: soul.selfUpdate,
+          selfUpdateInfo: bUpdate,
           name: bName,
           setName: setBName,
           saveName: setBAgentName,
@@ -4539,6 +4538,14 @@ window.__ModuleLoader__.load({
      * 这块是把自己的电脑交出去，所以地址、配对码、授权目录都在这一页填，
      * A 端不能替它填。
      */
+    /** 版本那一行后面跟的说明（和 bAgentBlock 同一作用域，别挪走）。 */
+    function updText(info) {
+      if (!info || info.error) return '';
+      if (info.newer) return '（A 上是 ' + info.remote + '，可以更新）';
+      if (info.remote) return '（A 上也是 ' + info.remote + '，已是最新）';
+      return '';
+    }
+
     function bAgentBlock(st, a) {
       var on = Boolean(st && st.mode);
       var pollText = st && st.lastPollAt

@@ -1771,3 +1771,20 @@ test('版本比较：预发布低于同号正式版', async () => {
   assert.ok(fn('0.3.1-rc.1', '0.3.1') < 0, '预发布低于正式版')
   assert.ok(fn('0.4.0', '0.3.9') > 0)
 })
+
+test('设置页：bAgentBlock 只能用自己作用域里的东西（跨作用域引用会把整页打白）', async () => {
+  const { readFileSync } = await import('node:fs')
+  const client = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8')
+  const start = client.indexOf('function bAgentBlock(')
+  assert.ok(start > 0)
+  // 取到函数结尾（下一个同缩进的 function 声明前）
+  const end = client.indexOf('\n    function ', start + 10)
+  const body = client.slice(start, end > 0 ? end : client.length)
+
+  // soulBlock 里的 patch/soul、以及别处的 helper，都不该出现在这里
+  assert.equal(/\bpatch\(/.test(body), false, 'bAgentBlock 里不能用 soulBlock 的 patch')
+  assert.equal(/\bsoul\./.test(body), false, 'bAgentBlock 里不能用 soulBlock 的 soul')
+  assert.match(body, /updText\(/, '自己那份 helper 要在同一作用域')
+  // helper 必须定义在它前面
+  assert.ok(client.indexOf('function updText(') < start, 'updText 要定义在 bAgentBlock 之前')
+})
