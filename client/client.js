@@ -611,6 +611,7 @@ window.__ModuleLoader__.load({
         syncStage: null,
         errorAt: null,
         prefsLoaded: false,
+        acceptPluginVersions: false,
         prefsStatus: '',
         sessions: 'none',
         attachments: false,
@@ -3185,7 +3186,11 @@ window.__ModuleLoader__.load({
       };
       var doPlan = function () {
         if (!needPack('import')) return;
-        run('生成计划', '/mini-remote/soul/plan', { packDir: soul.packDir, pathMap: pathMapOf() }).then(function (body) {
+        run('生成计划', '/mini-remote/soul/plan', {
+          packDir: soul.packDir,
+          pathMap: pathMapOf(),
+          acceptPluginVersions: Boolean(soul.acceptPluginVersions),
+        }).then(function (body) {
           if (body) patch({ stage: { kind: 'plan', body: body }, error: null, confirmApply: false });
         });
       };
@@ -3197,6 +3202,7 @@ window.__ModuleLoader__.load({
           confirm: true,
           pathMap: pathMapOf(),
           password: soul.applyPassword || '',
+          acceptPluginVersions: Boolean(soul.acceptPluginVersions),
         }, 'import').then(function (body) {
           if (body) patch({ stage: { kind: 'apply', body: body }, confirmApply: false, errorAt: body.ok === false ? 'import' : null, error: body.ok === false ? (body.error || '有项失败') : null });
         });
@@ -3309,8 +3315,21 @@ window.__ModuleLoader__.load({
             h('div', { style: styles.entryTitle }, '不能注入：版本不一致'),
             h('div', { style: styles.error }, pl.blocked.reason),
             h('div', { style: styles.muted }, '没有写入任何东西。把两台机器的 DSH 统一到同一版本后，重新体检。'),
-            h('div', { style: { marginTop: 10 } },
-              h('button', { type: 'button', onClick: function () { patch({ stage: null, error: null, errorAt: null }); }, style: styles.btn }, '知道了'),
+            h('div', { style: { marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' } },
+              // 软门禁（插件版本差异）给一次显式放行：看清楚之后可以按源版本重装。
+              pl.blocked.soft
+                ? h('button', {
+                    type: 'button',
+                    disabled: Boolean(soul.busy),
+                    onClick: function () { patch({ acceptPluginVersions: true }); doPlan(); },
+                    style: styles.btnPrimary,
+                  }, '仍然按源版本重装')
+                : null,
+              h('button', {
+                type: 'button',
+                onClick: function () { patch({ stage: null, error: null, errorAt: null, acceptPluginVersions: false }); },
+                style: styles.btn,
+              }, '知道了'),
             ),
           ));
         } else {

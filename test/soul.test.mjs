@@ -375,11 +375,12 @@ test('P2：版本不同 → 先卸再装', async () => {
       bundles: [{ name: 'pkg-b', installed: true, enabled: true }],
       versions: { 'pkg-b': '1.0.0' },
     })
-    const plan = await planSoul({ packDir: pack, ctx, home, profile: 'web' })
+    const plan = await planSoul({ packDir: pack, ctx, home, profile: 'web', acceptPluginVersions: true })
     const item = plan.plan.items.find((i) => i.target === 'pkg-b')
     assert.equal(item.action, 'reinstall', '版本不同要走先卸再装')
 
-    const applied = await applySoul({ packDir: pack, ctx, home, profile: 'web', planId: plan.planId, confirm: true })
+    // 执行时会**重算一遍计划**，所以放行开关也要带上，否则会被软门禁再拦一次。
+    const applied = await applySoul({ packDir: pack, ctx, home, profile: 'web', planId: plan.planId, confirm: true, acceptPluginVersions: true })
     assert.equal(applied.ok, true, JSON.stringify(applied.notes))
     assert.deepEqual(state.removes, ['pkg-b'])
     assert.deepEqual(state.installs, ['pkg-b@2.0.0'])
@@ -1666,14 +1667,74 @@ test('版本门禁：两边版本不一致时，计划为空、执行拒绝、�
     const plan = await planSoul({ packDir: pack, ctx, home, profile: 'web' })
     assert.equal(plan.ok, true)
     assert.ok(plan.plan.blocked, '要标记 blocked')
-    assert.match(plan.plan.blocked.reason, /版本不一致/)
+    assert.match(plan.plan.blocked.reason, /运行环境不一致/)
     assert.deepEqual(plan.plan.items, [], '版本不一致时不该产生任何动作')
 
     const applied = await applySoul({ packDir: pack, ctx, home, profile: 'web', planId: plan.planId, confirm: true })
     assert.equal(applied.ok, false, '执行必须被拒绝')
-    assert.match(applied.error, /版本不一致/)
+    assert.match(applied.error, /运行环境不一致/)
     // 真的什么都没写：快照目录都没建
     const { existsSync } = await import('node:fs')
     assert.equal(existsSync(join(home, 'dsh-mini-remote', 'snapshots')), false, '被拦时不该产生快照')
+  })
+})
+
+test('版本门禁：Node 大版本不一致算硬拦；插件版本差异算软拦、可显式放行', async () => {
+  await withTemp(async (root) => {
+    const home = join(root, 'home')
+    await mkdir(join(home, 'profiles', 'web'), { recursive: true })
+    await writeFile(join(home, 'profiles', 'web', 'package.json'), JSON.stringify({ dsh: { profile: { bundles: [] } }, dependencies: {} }), 'utf8')
+    const { readFile } = await import('node:fs/promises')
+    const { finalizePack } = await import('../lib/soul/pack.js')
+    const { planSoul } = await import('../lib/soul/migrate.js')
+
+    // ---- ① Node 大版本不同：硬拦 ----
+    const packNode = join(root, 'pack-node')
+    await makePack(packNode, { bundles: [], namespaces: {} })
+    let manifest = JSON.parse(await readFile(join(packNode, 'manifest.json'), 'utf8'))
+    manifest.source.dshVersion = '0.2.2-rc.3'
+    manifest.source.nodeVersion = 'v18.20.0'
+    await writeFile(join(packNode, 'manifest.json'), JSON.stringify(manifest), 'utf8')
+    await finalizePack(packNode, manifest)
+
+    const ctx = {
+      get: (name) => (name === 'pluginManager'
+        ? { listBundles: async () => [], listVersionExemptions: async () => ({ runtimeVersion: '0.2.2-rc.3' }) }
+        : undefined),
+    }
+    const nodeBlocked = await planSoul({ packDir: packNode, ctx, home, profile: 'web' })
+    assert.ok(nodeBlocked.plan.blocked, 'Node 大版本不同要拦')
+    assert.match(nodeBlocked.plan.blocked.reason, /Node 大版本/)
+    assert.equal(Boolean(nodeBlocked.plan.blocked.soft), false, '这是硬拦，不给放行')
+
+    // ---- ② 插件版本不同：软拦，放行后不再 blocked ----
+    const packPlug = join(root, 'pack-plug')
+    await makePack(packPlug, {
+      bundles: [{ name: 'some-plugin', installed: true, enabled: true, version: '2.0.0', spec: 'some-plugin@2.0.0' }],
+      namespaces: {},
+    })
+    manifest = JSON.parse(await readFile(join(packPlug, 'manifest.json'), 'utf8'))
+    manifest.source.dshVersion = '0.2.2-rc.3'
+    manifest.source.nodeVersion = process.version
+    await writeFile(join(packPlug, 'manifest.json'), JSON.stringify(manifest), 'utf8')
+    await finalizePack(packPlug, manifest)
+
+    const ctxPlug = {
+      get: (name) => (name === 'pluginManager'
+        ? {
+            // 本机同一个插件是 1.0.0
+            listBundles: async () => [{ name: 'some-plugin', installed: true, enabled: true, version: '1.0.0' }],
+            listVersionExemptions: async () => ({ runtimeVersion: '0.2.2-rc.3' }),
+          }
+        : undefined),
+    }
+    const softBlocked = await planSoul({ packDir: packPlug, ctx: ctxPlug, home, profile: 'web' })
+    assert.ok(softBlocked.plan.blocked, '插件版本不同默认也拦')
+    assert.equal(softBlocked.plan.blocked.soft, true)
+    assert.match(softBlocked.plan.blocked.reason, /some-plugin/)
+
+    const allowed = await planSoul({ packDir: packPlug, ctx: ctxPlug, home, profile: 'web', acceptPluginVersions: true })
+    assert.equal(Boolean(allowed.plan.blocked), false, '显式放行后不再拦')
+    assert.ok(allowed.plan.items.length > 0, '放行后要真的有计划')
   })
 })
