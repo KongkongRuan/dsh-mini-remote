@@ -674,10 +674,10 @@ test('P3：两端版本不同时，会话整项跳过并说清原因', async () 
 
     const { ctx } = fakeCtxWithInstall({ bundles: [] }) // 这份假 ctx 的运行时版本是 0.2.2-rc.3
     const plan = await planSoul({ packDir: pack, ctx, home, profile: 'web' })
-    const item = plan.plan.items.find((i) => i.id === 'sessions:version')
-    assert.ok(item, '要有一条版本不一致的说明')
-    assert.equal(item.action, 'skip')
-    assert.match(item.detail, /版本不同/)
+    // 2026-11-19 起这条规则收紧了：版本不一致不再"只跳过会话"，而是**整笔拒绝**——
+    // 跨版本写插件组合与补丁可能损坏本机 DSH，那是不可逆的。
+    assert.ok(plan.plan.blocked, '版本不一致要整笔拦下')
+    assert.deepEqual(plan.plan.items, [], '不该产生任何动作项')
     assert.equal(plan.plan.items.filter((i) => i.kind === 'session' && i.action === 'create').length, 0)
   })
 })
@@ -1639,4 +1639,41 @@ test('B 端面板：小标题的外边距必须写在 style 里', async () => {
     const near = client.slice(Math.max(0, at - 120), at)
     assert.ok(near.includes('Object.assign({}, styles.muted, { marginTop: 14 })'), '这个标题的间距要写在 style 里：' + label)
   }
+})
+
+test('版本门禁：两边版本不一致时，计划为空、执行拒绝、什么都不写', async () => {
+  await withTemp(async (root) => {
+    const home = join(root, 'home')
+    await mkdir(join(home, 'profiles', 'web'), { recursive: true })
+    await writeFile(join(home, 'profiles', 'web', 'package.json'), JSON.stringify({ dsh: { profile: { bundles: [] } }, dependencies: {} }), 'utf8')
+    const pack = join(root, 'pack')
+    await makePack(pack, { bundles: [{ name: 'some-plugin', installed: true, enabled: true, version: '1.0.0' }], namespaces: { 'a.b': { value: 1, revision: 1 } } })
+    const { readFile } = await import('node:fs/promises')
+    const manifest = JSON.parse(await readFile(join(pack, 'manifest.json'), 'utf8'))
+    manifest.source.dshVersion = '0.2.2-rc.3'
+    await writeFile(join(pack, 'manifest.json'), JSON.stringify(manifest), 'utf8')
+    const { finalizePack } = await import('../lib/soul/pack.js')
+    await finalizePack(pack, manifest)
+
+    // 本机是另一个版本
+    const ctx = {
+      get: (name) => (name === 'pluginManager'
+        ? { listBundles: async () => [], listVersionExemptions: async () => ({ runtimeVersion: '0.3.0' }) }
+        : undefined),
+    }
+    const { planSoul, applySoul } = await import('../lib/soul/migrate.js')
+
+    const plan = await planSoul({ packDir: pack, ctx, home, profile: 'web' })
+    assert.equal(plan.ok, true)
+    assert.ok(plan.plan.blocked, '要标记 blocked')
+    assert.match(plan.plan.blocked.reason, /版本不一致/)
+    assert.deepEqual(plan.plan.items, [], '版本不一致时不该产生任何动作')
+
+    const applied = await applySoul({ packDir: pack, ctx, home, profile: 'web', planId: plan.planId, confirm: true })
+    assert.equal(applied.ok, false, '执行必须被拒绝')
+    assert.match(applied.error, /版本不一致/)
+    // 真的什么都没写：快照目录都没建
+    const { existsSync } = await import('node:fs')
+    assert.equal(existsSync(join(home, 'dsh-mini-remote', 'snapshots')), false, '被拦时不该产生快照')
+  })
 })

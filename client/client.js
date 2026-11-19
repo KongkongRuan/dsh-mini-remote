@@ -3303,6 +3303,17 @@ window.__ModuleLoader__.load({
       }
       if (stage && stage.kind === 'plan') {
         var pl = stage.body;
+        // 版本不一致：**不给确认按钮**。跨版本注入可能损坏本机 DSH，这不是"少搬一点"的问题。
+        if (pl.blocked) {
+          importRows.push(h('div', { key: 'r-plan-blocked', style: styles.block },
+            h('div', { style: styles.entryTitle }, '不能注入：版本不一致'),
+            h('div', { style: styles.error }, pl.blocked.reason),
+            h('div', { style: styles.muted }, '没有写入任何东西。把两台机器的 DSH 统一到同一版本后，重新体检。'),
+            h('div', { style: { marginTop: 10 } },
+              h('button', { type: 'button', onClick: function () { patch({ stage: null, error: null, errorAt: null }); }, style: styles.btn }, '知道了'),
+            ),
+          ));
+        } else {
         importRows.push(h('div', { key: 'r-plan', style: styles.block },
           h('div', { style: styles.entryTitle }, '计划：会做这些事'),
           h('div', { style: styles.muted }, '装包 ' + (pl.summary.install || 0) + '、换版本 ' + (pl.summary.reinstall || 0) + '、启用 ' + (pl.summary.enable || 0) + '、改配置 ' + (pl.summary.replace || 0) + '、新建 ' + (pl.summary.create || 0) + '、跳过 ' + (pl.summary.skip || 0) + '。'),
@@ -3323,6 +3334,7 @@ window.__ModuleLoader__.load({
           ),
           h('div', { style: styles.muted }, '执行会改配置、装插件、替换补丁与文件。执行前会自动快照。'),
         ));
+        }
       }
       if (stage && stage.kind === 'apply') {
         var ap = stage.body;
