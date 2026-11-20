@@ -1801,3 +1801,32 @@ test('注入：没装的包绝不能被写进启用清单（2026-11-20 真机事
   assert.match(src, /安装失败（\$\{code\}），已从启用清单摘掉/)
   assert.match(src, /await pluginManager\.removeBundle\?\.\(item\.target\)/)
 })
+
+test('导出：只带用户自己装的插件，内置的不进同步范围', async () => {
+  await withTemp(async (root) => {
+    const home = join(root, 'home')
+    const profileDir = join(home, 'profiles', 'web')
+    await mkdir(join(profileDir, 'node_modules', 'user-plugin'), { recursive: true })
+    await mkdir(join(profileDir, 'node_modules', '@scope', 'third'), { recursive: true })
+    await writeFile(join(profileDir, 'node_modules', 'user-plugin', 'package.json'), JSON.stringify({ name: 'user-plugin', version: '1.2.0' }), 'utf8')
+    await writeFile(join(profileDir, 'node_modules', '@scope', 'third', 'package.json'), JSON.stringify({ name: '@scope/third', version: '0.3.0' }), 'utf8')
+    await writeFile(join(profileDir, 'package.json'), JSON.stringify({
+      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'user-plugin', '@scope/third', 'ghost-plugin'] } },
+      dependencies: { 'user-plugin': '^1.2.0', '@scope/third': '^0.3.0', 'ghost-plugin': '^1.0.0', '@deepseek-ai/dsh-base': '*' },
+    }), 'utf8')
+
+    const { exportSoul } = await import('../lib/soul/export.js')
+    const outDir = join(root, 'pack')
+    const res = await exportSoul({ ctx: { get: () => undefined }, home, profile: 'web', outDir, runPack: async () => ({ ok: false }) })
+    assert.equal(res.ok, true, res.error)
+
+    const bundles = JSON.parse(await readFile(join(outDir, 'profile', 'bundles.json'), 'utf8'))
+    const names = bundles.bundles.map((b) => b.name)
+    assert.deepEqual(names.sort(), ['@scope/third', 'user-plugin'], '只带 node_modules 里真实存在的')
+    assert.equal(names.includes('@deepseek-ai/dsh-base'), false, '内置插件不搬')
+    assert.equal(names.includes('ghost-plugin'), false, '清单里写着但没装的也不搬')
+
+    const deps = JSON.parse(await readFile(join(outDir, 'profile', 'dependencies.json'), 'utf8'))
+    assert.deepEqual(Object.keys(deps).sort(), ['@scope/third', 'user-plugin'])
+  })
+})
