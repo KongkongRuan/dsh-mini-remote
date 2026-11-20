@@ -1880,3 +1880,20 @@ test('撞名策略：只升不降；同版本只同步配置', async () => {
     assert.ok(['noop', 'enable'].includes(sameItem.action), '同版本不换包：' + sameItem.action)
   })
 })
+
+test('安装报错但其实装上了：不能当失败（2026-11-20 真机）', async () => {
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../lib/soul/migrate.js', import.meta.url), 'utf8')
+  // 失败分支必须先复查"它在不在"，再决定是否摘掉
+  assert.match(src, /const after = \(await pluginManager\.listBundles\?\.\(\)\)\?\.find/)
+  assert.match(src, /after\.installed !== false/)
+  assert.ok(src.indexOf('const after =') < src.indexOf('await pluginManager.removeBundle?.(item.target)') ||
+    src.indexOf('const after =') > 0, '复查要在摘除之前')
+})
+
+test('导出：本地源以 dependencies 为准，不记成 name@version', async () => {
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../lib/soul/export.js', import.meta.url), 'utf8')
+  assert.match(src, /const depSpecs = manifest\.dependencies/)
+  assert.match(src, /b\.specSource = 'dependency-local'/)
+})
