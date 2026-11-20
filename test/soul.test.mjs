@@ -1897,3 +1897,40 @@ test('导出：本地源以 dependencies 为准，不记成 name@version', async
   assert.match(src, /const depSpecs = manifest\.dependencies/)
   assert.match(src, /b\.specSource = 'dependency-local'/)
 })
+
+test('构建脚本待批准：能查出来、能批准，且改前有备份', async () => {
+  await withTemp(async (root) => {
+    const home = join(root, 'home')
+    const dir = join(home, 'profiles', 'desktop')
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, 'pnpm-workspace.yaml'), [
+      'packages:',
+      '  - .',
+      '',
+      'allowBuilds:',
+      '  protobufjs@7.6.6: true',
+      '  cloudflared@0.7.3: set this to true or false',
+      '  ssh2@1.17.0: set this to true or false',
+      '',
+    ].join('\n'), 'utf8')
+
+    const { pendingAllowBuilds, approveAllowBuilds } = await import('../lib/soul/migrate.js')
+    const pending = pendingAllowBuilds(home, 'desktop')
+    assert.deepEqual(pending.map((x) => x.name).sort(), ['cloudflared', 'ssh2'])
+    assert.equal(pending[0].raw.includes('@'), true, '要能报出带版本的全名')
+
+    const changed = approveAllowBuilds(home, 'desktop')
+    assert.deepEqual(changed.sort(), ['cloudflared@0.7.3', 'ssh2@1.17.0'])
+
+    const after = pendingAllowBuilds(home, 'desktop')
+    assert.equal(after.length, 0, '批准后不该再有待决定项')
+
+    const text = await readFile(join(dir, 'pnpm-workspace.yaml'), 'utf8')
+    assert.match(text, /cloudflared@0\.7\.3: true/)
+    assert.match(text, /protobufjs@7\.6\.6: true/, '已决定的项不能被改坏')
+
+    // 备份存在
+    const { readdirSync } = await import('node:fs')
+    assert.ok(readdirSync(dir).some((n) => n.startsWith('pnpm-workspace.yaml.bak-')), '改前要备份')
+  })
+})

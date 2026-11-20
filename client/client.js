@@ -3373,6 +3373,30 @@ window.__ModuleLoader__.load({
         importRows.push(h('div', { key: 'r-plan', style: styles.block },
           h('div', { style: styles.entryTitle }, '计划：会做这些事'),
           h('div', { style: styles.muted }, '装包 ' + (pl.summary.install || 0) + '、换版本 ' + (pl.summary.reinstall || 0) + '、启用 ' + (pl.summary.enable || 0) + '、改配置 ' + (pl.summary.replace || 0) + '、新建 ' + (pl.summary.create || 0) + '、跳过 ' + (pl.summary.skip || 0) + '。'),
+          // 待批准的构建脚本：单独拎出来说，别混在二十行清单里
+          (function () {
+            var wait = (pl.items || []).filter(function (one) { return one.kind === 'builds' })[0];
+            if (!wait) return null;
+            return h('div', { style: Object.assign({}, styles.detail, { color: '#b45309' }) },
+              wait.detail,
+              h('div', { style: { marginTop: 8 } },
+                h('button', {
+                  type: 'button',
+                  disabled: Boolean(soul.busy),
+                  style: styles.btn,
+                  onClick: function () {
+                    run('批准中', '/mini-remote/soul/approve-builds', { packDir: soul.packDir }).then(function (body) {
+                      if (!body) return;
+                      toast((body.approved && body.approved.length)
+                        ? ('已批准：' + body.approved.join('、'))
+                        : '没有需要批准的项');
+                      doPlan();
+                    });
+                  },
+                }, soul.busy === '批准中' ? '批准中…' : '批准这几个，然后重算计划'),
+              ),
+            );
+          })(),
           (pl.items && pl.items.length)
             ? h('div', { style: styles.detail }, pl.items.slice(0, 20).map(function (one) {
                 return '· [' + one.action + '] ' + (one.what || '') + ' — ' + (one.detail || '');
