@@ -1830,3 +1830,53 @@ test('导出：只带用户自己装的插件，内置的不进同步范围', as
     assert.deepEqual(Object.keys(deps).sort(), ['@scope/third', 'user-plugin'])
   })
 })
+
+test('撞名策略：只升不降；同版本只同步配置', async () => {
+  const { comparePluginVersions } = await import('../lib/soul/migrate.js')
+  assert.ok(comparePluginVersions('2.0.0', '1.9.9') > 0)
+  assert.ok(comparePluginVersions('1.0.0', '2.0.0') < 0)
+  assert.equal(comparePluginVersions('1.0.0', '1.0.0'), 0)
+  assert.ok(comparePluginVersions('1.0.0-rc.1', '1.0.0') < 0, '预发布低于正式版')
+
+  await withTemp(async (root) => {
+    const home = join(root, 'home')
+    await mkdir(join(home, 'profiles', 'web'), { recursive: true })
+    await writeFile(join(home, 'profiles', 'web', 'package.json'), JSON.stringify({ dsh: { profile: { bundles: [] } }, dependencies: {} }), 'utf8')
+
+    const makeCtx = (liveVersion) => ({
+      get: (name) => (name === 'pluginManager'
+        ? {
+            listBundles: async () => [{ name: 'pkg-x', installed: true, enabled: true, version: liveVersion }],
+            listVersionExemptions: async () => ({ runtimeVersion: '0.2.2-rc.3' }),
+          }
+        : undefined),
+    })
+
+    // ① 源更旧 → 跳过，不降级
+    const packOld = await packWithBundles(root, [
+      { name: 'pkg-x', installed: true, enabled: true, version: '1.0.0', spec: 'pkg-x@1.0.0' },
+    ])
+    const down = await planSoul({ packDir: packOld, ctx: makeCtx('2.0.0'), home, profile: 'web', acceptPluginVersions: true })
+    const downItem = down.plan.items.find((i) => i.target === 'pkg-x')
+    assert.equal(downItem.action, 'skip', '源更旧就保留目标机，不降级')
+    assert.match(downItem.detail, /不降级/)
+
+    // ② 源更新 → 升级（先卸再装）
+    const packNew = await packWithBundles(root, [
+      { name: 'pkg-x', installed: true, enabled: true, version: '3.0.0', spec: 'pkg-x@3.0.0' },
+    ])
+    // 升级要过软门禁（会被要求确认一次），这里显式放行来看计划本身。
+    const up = await planSoul({ packDir: packNew, ctx: makeCtx('2.0.0'), home, profile: 'web', acceptPluginVersions: true })
+    const upItem = up.plan.items.find((i) => i.target === 'pkg-x')
+    assert.equal(upItem.action, 'reinstall')
+    assert.match(upItem.detail, /升级 2\.0\.0 → 3\.0\.0/)
+
+    // ③ 同版本 → 不动包
+    const packSame = await packWithBundles(root, [
+      { name: 'pkg-x', installed: true, enabled: true, version: '2.0.0', spec: 'pkg-x@2.0.0' },
+    ])
+    const same = await planSoul({ packDir: packSame, ctx: makeCtx('2.0.0'), home, profile: 'web' })
+    const sameItem = same.plan.items.find((i) => i.target === 'pkg-x')
+    assert.ok(['noop', 'enable'].includes(sameItem.action), '同版本不换包：' + sameItem.action)
+  })
+})
