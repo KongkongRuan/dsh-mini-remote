@@ -1788,3 +1788,16 @@ test('设置页：bAgentBlock 只能用自己作用域里的东西（跨作用�
   // helper 必须定义在它前面
   assert.ok(client.indexOf('function updText(') < start, 'updText 要定义在 bAgentBlock 之前')
 })
+
+test('注入：没装的包绝不能被写进启用清单（2026-11-20 真机事故）', async () => {
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../lib/soul/migrate.js', import.meta.url), 'utf8')
+
+  // 启用之前必须先确认 installed
+  assert.match(src, /if \(!before \|\| before\.installed === false\) \{/, '启用前要确认目标机装了这个包')
+  assert.match(src, /写进启用清单会让 DSH 起不来/, '跳过时要说明后果')
+
+  // 装失败要顺手摘掉登记，别留下"启用了但没装"
+  assert.match(src, /安装失败（\$\{code\}），已从启用清单摘掉/)
+  assert.match(src, /await pluginManager\.removeBundle\?\.\(item\.target\)/)
+})
