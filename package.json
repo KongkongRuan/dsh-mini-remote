@@ -21,6 +21,7 @@
     "SKILL-soul.md",
     "docs/guide",
     "docs/DSH-Everywhere.md",
+    "scripts/soul-offline-rollback.mjs",
     "relay-server",
     "cordis.patch.yml",
     "README.md",
@@ -91,7 +92,8 @@
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.74.0",
-    "qrcode": "^1.5.4"
+    "qrcode": "^1.5.4",
+    "yaml": "^2.9.1"
   },
   "contentPolicy": {
     "class": "dual-use"

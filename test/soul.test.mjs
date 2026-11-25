@@ -2,7 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
 import { finalizePack, readManifest, verifyPack, writeJsonFile, writeTextFile, hashText } from '../lib/soul/pack.js'
 import { detectProfile, readProfileManifest } from '../lib/soul/env.js'
@@ -240,6 +242,42 @@ test('执行：planId 对不上就整笔拒绝（计划变了不写）', async (
   })
 })
 
+test('计划绑定：档案修订号变化会指出差异并零写入（2026-11-20 事故）', async () => {
+  await withTemp(async (root) => {
+    const home = join(root, 'home')
+    const profileDir = join(home, 'profiles', 'web')
+    const manifest = join(profileDir, 'package.json')
+    const target = join(home, 'AGENTS.md')
+    await mkdir(profileDir, { recursive: true })
+    await writeFile(manifest, JSON.stringify({ dsh: { profile: { bundles: [] } }, dependencies: {} }), 'utf8')
+    await writeFile(target, '# 本机规则\n', 'utf8')
+    const pack = join(root, 'pack')
+    await makePack(pack, { bundles: [], namespaces: {}, agents: '# 包里的规则\n' })
+    const { ctx, state } = fakeCtx({})
+
+    const plan = await planSoul({ packDir: pack, ctx, home, profile: 'web' })
+    assert.equal(plan.ok, true)
+    assert.ok(plan.plan.targetBinding.hostname, '计划要记录机器名')
+    assert.ok(plan.plan.targetBinding.username, '计划要记录用户名')
+    assert.equal(plan.plan.targetBinding.packageHash.length, 64, '档案修订号是 package.json 的 SHA-256')
+    assert.equal(plan.plan.targetBinding.profilePath, profileDir.replace(/\\/g, '/'))
+
+    // 只改 package.json 的一个无关字段，变更清单不会变；绑定修订号仍必须认出。
+    const changedManifest = JSON.stringify({ dsh: { profile: { bundles: [] } }, dependencies: {}, changed: true }, null, 2)
+    await writeFile(manifest, changedManifest, 'utf8')
+    const applied = await applySoul({ packDir: pack, ctx, home, profile: 'web', planId: plan.planId, confirm: true })
+    assert.equal(applied.ok, false)
+    assert.equal(applied.code, 'target-mismatch')
+    assert.match(applied.error, /档案修订号/)
+    assert.match(applied.error, /package\.json 哈希/)
+    assert.equal(await readFile(manifest, 'utf8'), changedManifest, 'apply 不能再动目标档案')
+    assert.equal(await readFile(target, 'utf8'), '# 本机规则\n', '目标文件必须逐字不变')
+    assert.equal(state.replaceCalls.length, 0)
+    const { existsSync } = await import('node:fs')
+    assert.equal(existsSync(join(home, 'dsh-mini-remote', 'souls', '.snapshots')), false, '拒绝前不能建快照')
+  })
+})
+
 test('执行：写完能回滚，文件与配置都退回去', async () => {
   await withTemp(async (root) => {
     const home = join(root, 'home')
@@ -265,6 +303,115 @@ test('执行：写完能回滚，文件与配置都退回去', async () => {
     assert.equal(back.ok, true, JSON.stringify(back.failed))
     assert.equal(await readFile(join(home, 'AGENTS.md'), 'utf8'), '# 旧规则\n')
     assert.deepEqual(state.namespaces.ns.value, { a: 1 }, '配置要退回旧值')
+  })
+})
+
+test('补丁层：默认两层都不搬，目标机原文字节不变', async () => {
+  await withTemp(async (root) => {
+    const home = join(root, 'home')
+    const profileDir = join(home, 'profiles', 'web')
+    const homeTarget = join(home, 'cordis.patch.yml')
+    const profileTarget = join(profileDir, 'cordis.patch.yml')
+    await mkdir(profileDir, { recursive: true })
+    await writeFile(join(profileDir, 'package.json'), '{}', 'utf8')
+    await writeFile(homeTarget, '# B 的 home 补丁\r\n', 'utf8')
+    await writeFile(profileTarget, '# B 的档案补丁\r\n', 'utf8')
+    const pack = join(root, 'pack')
+    await makePack(pack, {
+      bundles: [], namespaces: {},
+      homePatch: '- insert:\n    - id: home-from-a\n      name: home-from-a\n',
+      profilePatch: '- insert:\n    - id: profile-from-a\n      name: profile-from-a\n',
+    })
+    const { ctx } = fakeCtx({})
+    const plan = await planSoul({ packDir: pack, ctx, home, profile: 'web' })
+    assert.equal(plan.plan.items.filter((item) => item.kind === 'patch').length, 0, '默认连执行项都不生成')
+    const applied = await applySoul({ packDir: pack, ctx, home, profile: 'web', planId: plan.planId, confirm: true })
+    assert.equal(applied.ok, true, JSON.stringify(applied.notes))
+    assert.equal(await readFile(homeTarget, 'utf8'), '# B 的 home 补丁\r\n')
+    assert.equal(await readFile(profileTarget, 'utf8'), '# B 的档案补丁\r\n')
+  })
+})
+
+test('补丁层：显式开启后，失效引用跳过并记 note，合法层仍可搬', async () => {
+  await withTemp(async (root) => {
+    const home = join(root, 'home')
+    const profileDir = join(home, 'profiles', 'web')
+    const homeTarget = join(home, 'cordis.patch.yml')
+    const profileTarget = join(profileDir, 'cordis.patch.yml')
+    await mkdir(profileDir, { recursive: true })
+    await writeFile(join(profileDir, 'package.json'), JSON.stringify({
+      dsh: { profile: { bundles: ['known-plugin'] } },
+      dependencies: { 'known-plugin': '1.0.0' },
+    }), 'utf8')
+    await writeFile(homeTarget, '# home-old\n', 'utf8')
+    await writeFile(profileTarget, '# profile-old\n', 'utf8')
+    const homePatch = '- insert:\n    - id: known-plugin\n      name: known-plugin\n'
+    const profilePatch = '- insert:\n    - id: ghost-plugin\n      name: ghost-plugin\n'
+    const pack = join(root, 'pack')
+    await makePack(pack, { bundles: [], namespaces: {}, homePatch, profilePatch })
+    const { ctx } = fakeCtx({})
+
+    const plan = await planSoul({ packDir: pack, ctx, home, profile: 'web', patch: true })
+    const homeItem = plan.plan.items.find((item) => item.id === 'patch:home')
+    const profileItem = plan.plan.items.find((item) => item.id === 'patch:profile')
+    assert.equal(homeItem.action, 'replace')
+    assert.equal(profileItem.action, 'skip')
+    assert.deepEqual(profileItem.missingPlugins, ['ghost-plugin'])
+
+    const applied = await applySoul({ packDir: pack, ctx, home, profile: 'web', planId: plan.planId, confirm: true, patch: true })
+    assert.equal(applied.ok, true, JSON.stringify(applied.notes))
+    assert.equal(await readFile(homeTarget, 'utf8'), homePatch, '合法层按原文搬')
+    assert.equal(await readFile(profileTarget, 'utf8'), '# profile-old\n', '失效引用那层绝不能覆盖')
+    assert.ok(applied.notes.some((note) => note.includes('ghost-plugin') && note.includes('已跳过')), JSON.stringify(applied.notes))
+  })
+})
+
+test('补丁层：YAML 字段换序/流程映射不能绕过校验，无法解析也失败关闭', async () => {
+  await withTemp(async (root) => {
+    let sequence = 0
+    const runCase = async (source) => {
+      const dir = join(root, `case-${sequence++}`)
+      const home = join(dir, 'home')
+      const profileDir = join(home, 'profiles', 'web')
+      const target = join(home, 'cordis.patch.yml')
+      await mkdir(profileDir, { recursive: true })
+      await writeFile(join(profileDir, 'package.json'), JSON.stringify({
+        dsh: { profile: { bundles: ['known-plugin'] } },
+        dependencies: { 'known-plugin': '1.0.0' },
+      }), 'utf8')
+      await writeFile(join(home, 'AGENTS.md'), '# 规则\n', 'utf8')
+      await writeFile(target, '# keep\n', 'utf8')
+      await writeFile(join(profileDir, 'cordis.patch.yml'), '[]\n', 'utf8')
+      const pack = join(dir, 'pack')
+      await makePack(pack, { bundles: [], namespaces: {}, homePatch: source, profilePatch: '[]\n' })
+      const { ctx } = fakeCtx({})
+      const plan = await planSoul({ packDir: pack, ctx, home, profile: 'web', patch: true })
+      const item = plan.plan.items.find((one) => one.id === 'patch:home')
+      const applied = await applySoul({ packDir: pack, ctx, home, profile: 'web', planId: plan.planId, confirm: true, patch: true })
+      return { item, applied, target, source }
+    }
+
+    for (const source of [
+      '- insert:\n    - id: known-plugin\n      disabled: false\n      name: ghost-plugin\n',
+      '- insert:\n    - name: ghost-plugin\n      id: known-plugin\n',
+      '- insert: [{ id: ghost-plugin, name: ghost-plugin }]\n',
+    ]) {
+      const { item, applied, target } = await runCase(source)
+      assert.equal(item.action, 'skip', source)
+      assert.deepEqual(item.missingPlugins, ['ghost-plugin'], source)
+      assert.equal(await readFile(target, 'utf8'), '# keep\n')
+      assert.ok(applied.notes.some((note) => note.includes('ghost-plugin')), JSON.stringify(applied.notes))
+    }
+
+    const broken = await runCase('- insert:\n    - id: [broken\n      name: ghost-plugin\n')
+    assert.equal(broken.item.action, 'skip')
+    assert.ok(broken.item.parseError, '坏 YAML 要留下无法确认结构的原因')
+    assert.equal(await readFile(broken.target, 'utf8'), '# keep\n')
+    assert.ok(broken.applied.notes.some((note) => note.includes('无法可靠解析')), JSON.stringify(broken.applied.notes))
+
+    const valid = await runCase('- insert:\n    - name: known-plugin\n      disabled: false\n      id: known-plugin\n')
+    assert.equal(valid.item.action, 'replace', '合法的字段换序不能误伤')
+    assert.equal(await readFile(valid.target, 'utf8'), valid.source)
   })
 })
 
@@ -403,6 +550,54 @@ test('P2：回滚会把本次新装的包卸掉', async () => {
     const back = await rollbackSoul({ ctx, snapshotDir: applied.snapshotDir })
     assert.equal(back.ok, true, JSON.stringify(back.failed))
     assert.deepEqual(state.removes, ['pkg-c'])
+  })
+})
+
+test('带外回滚：不启动插件，--list 只读，独立脚本恢复文件并移除新装包清单', async () => {
+  await withTemp(async (root) => {
+    const home = join(root, 'home')
+    const profileDir = join(home, 'profiles', 'web')
+    const profileManifest = join(profileDir, 'package.json')
+    const snapshotDir = join(home, 'dsh-mini-remote', 'souls', '.snapshots', 'offline-test')
+    const backup = join(snapshotDir, 'files', 'agents-backup')
+    const target = join(home, 'AGENTS.md')
+    await mkdir(profileDir, { recursive: true })
+    await mkdir(dirname(backup), { recursive: true })
+    await writeFile(target, '# 被覆盖后的内容\n', 'utf8')
+    await writeFile(backup, '# 原来的内容\n', 'utf8')
+    await writeFile(profileManifest, JSON.stringify({
+      dsh: { profile: { bundles: ['keep-plugin', 'new-plugin'] } },
+      dependencies: { 'keep-plugin': '1.0.0', 'new-plugin': '2.0.0' },
+    }, null, 2), 'utf8')
+    const journalFile = join(snapshotDir, 'journal.json')
+    const resultFile = join(snapshotDir, 'result.json')
+    await writeFile(journalFile, JSON.stringify({ entries: [
+      { kind: 'file', target, backup },
+      { kind: 'bundle-install', target: 'new-plugin', profilePath: profileDir },
+    ] }, null, 2), 'utf8')
+    await writeFile(resultFile, JSON.stringify({
+      planId: 'offline-fixture',
+      targetBinding: { profilePath: profileDir },
+      journal: [{ kind: 'install', action: 'install', target: 'new-plugin', result: 'applied' }],
+      notes: [],
+    }, null, 2), 'utf8')
+
+    const script = fileURLToPath(new URL('../scripts/soul-offline-rollback.mjs', import.meta.url))
+    const watched = [target, profileManifest, journalFile, resultFile, backup]
+    const before = await Promise.all(watched.map((file) => readFile(file)))
+    const listed = spawnSync(process.execPath, [script, '--list', snapshotDir], { encoding: 'utf8' })
+    assert.equal(listed.status, 0, listed.stderr)
+    assert.match(listed.stdout, /"listOnly": true/)
+    assert.deepEqual(await Promise.all(watched.map((file) => readFile(file))), before, '--list 不能改任何受监视文件')
+
+    const restored = spawnSync(process.execPath, [script, snapshotDir], { encoding: 'utf8' })
+    assert.equal(restored.status, 0, restored.stderr || restored.stdout)
+    assert.equal(await readFile(target, 'utf8'), '# 原来的内容\n')
+    const pkg = JSON.parse(await readFile(profileManifest, 'utf8'))
+    assert.deepEqual(pkg.dsh.profile.bundles, ['keep-plugin'])
+    assert.deepEqual(pkg.dependencies, { 'keep-plugin': '1.0.0' })
+    const published = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+    assert.ok(published.files.includes('scripts/soul-offline-rollback.mjs'), 'npm 包必须带脚本，插件损坏时才找得到')
   })
 })
 
