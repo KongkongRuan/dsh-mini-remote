@@ -662,3 +662,15 @@ test('回到底部浮标：出现与消失各一段 130ms 的淡入淡出，不�
   assert.match(block, /prefers-reduced-motion[^}]*\.to-bottom\.streaming::after\s*\{[^}]*animation:\s*none/,
     '减少动效时圆环要停转')
 })
+
+test('旁白：这一轮结束就收掉气泡，别把上一轮那句留到下一轮', () => {
+  // 用户 2026-11-27 晚：「气泡一直留着也不合理，下次气泡出现替换，回答结束就消失」。
+  // 服务端在 turn/end 把 thought 清空并推一份；页面这边必须跟着把气泡收掉，
+  // 否则她下次出现时会把上一轮那句再念一遍。
+  const from = html.indexOf('function maybeSpeak')
+  assert.ok(from > 0, '找不到 maybeSpeak')
+  const body = html.slice(from, html.indexOf('\n  }', from))
+  assert.match(body, /if \(!t \|\| !t\.text\)/, '先判「没有台词」')
+  assert.match(body, /paintBubble\(''\)/, '没有台词就把气泡清空')
+  assert.match(body, /work\.speakAt = 0/, '「念过了」的记号也要归零，下一句才说得出来')
+})

@@ -3633,7 +3633,17 @@
    */
   function maybeSpeak() {
     var t = state.thought;
-    if (!t || !t.text) return;
+    if (!t || !t.text) {
+      // **台词作废了就一起收掉气泡**（2026-11-27 晚，用户：「气泡一直留着不合理，
+      // 下次气泡出现替换，回答结束就消失」）。服务端在 turn/end 会把 thought 清空并推一份，
+      // 这里不跟着收的话，她下次出现时会把上一轮那句再念一遍。
+      if (work.speakAt) {
+        work.speakAt = 0;
+        work.speakText = '';
+        paintBubble('');
+      }
+      return;
+    }
     if (t.at === work.speakAt) return;
     work.speakAt = t.at;
     work.speakText = t.text;
