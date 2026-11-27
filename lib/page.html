@@ -352,6 +352,66 @@
     display: block; max-width: 100%; height: auto; margin: 10px 0;
     border-radius: var(--r); border: 1px solid var(--line); background: var(--panel-2);
   }
+  /* ---------- 正文里的图片：一条 + 全屏查看（2026-11-27 v2） ----------
+     为什么不再内联摊开：一张长截图就顶掉两三屏，聊天记录里别的东西全被挤走；
+     而 2000px 宽的图缩到 390px 也只看个大概，想看清必须能放大。
+     条上留 40×40 缩略图：不用每张都点开才知道是哪张（用户 2026-11-27 定的口径）。 */
+  .img-row {
+    display: flex; align-items: center; gap: 9px;
+    width: 100%; max-width: 100%; margin: 8px 0; padding: 5px 10px 5px 5px;
+    border: 1px solid var(--line); border-radius: var(--r);
+    background: var(--panel); color: var(--fg); font: inherit; text-align: left;
+    cursor: pointer;
+  }
+  .img-row:active { opacity: .75; }
+  .img-thumb {
+    flex: none; width: 40px; height: 40px; overflow: hidden;
+    border-radius: var(--r); background: var(--panel-2);
+  }
+  /* 这一层是缩略图，不是正文大图：把 .md-img 的边距/描边/最大宽度全撤掉 */
+  .img-thumb .md-img {
+    display: block; width: 100%; height: 100%; max-width: none;
+    margin: 0; border: 0; border-radius: 0; object-fit: cover;
+  }
+  /* 取不到那张图：缩略图位置留个虚框，别空一格让人以为本来就没图（原因由 toast 说） */
+  .img-row.bad .img-thumb { outline: 1px dashed var(--line); outline-offset: -2px; }
+  .img-row.bad .img-thumb .md-img { display: none; }
+  .img-name {
+    flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; font-size: 13px;
+  }
+  .img-open { flex: none; font-size: 12px; color: var(--muted); }
+
+  /* 全屏查看器：黑底 + 手势缩放。层级压在提问卡（300）之下——有问题要问时，
+     别让人被一张图挡在外面。 */
+  .imgview {
+    position: fixed; inset: 0; z-index: 290; display: none;
+    flex-direction: column; background: rgba(0, 0, 0, .94);
+  }
+  .imgview.open { display: flex; }
+  .iv-bar {
+    flex: none; display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; color: #e8eef6; font-size: 13px;
+  }
+  .iv-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .iv-close {
+    flex: none; width: 32px; height: 32px; border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, .18); background: rgba(255, 255, 255, .06);
+    color: inherit; font-size: 15px; line-height: 1; cursor: pointer;
+  }
+  .iv-stage {
+    flex: 1 1 auto; position: relative; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    touch-action: none; cursor: zoom-in;
+  }
+  .iv-img {
+    max-width: 100%; max-height: 100%; transform-origin: center center;
+    will-change: transform; user-select: none; -webkit-user-drag: none;
+  }
+  .iv-tip {
+    position: absolute; left: 0; right: 0; bottom: 18px; text-align: center;
+    color: rgba(232, 238, 246, .55); font-size: 12px; pointer-events: none;
+  }
   .md > :first-child { margin-top: 0; }
   .md > :last-child { margin-bottom: 0; }
   .md p { margin: 0 0 .7em; }
@@ -2382,6 +2442,19 @@
   <button id="gateBtn">进入</button>
 </div>
 
+<!-- 全屏看图（2026-11-27 v2）。放在 #toast 前面、所有卡片之外：
+     它不属于任何一条消息，重绘聊天记录也不会把它带走。 -->
+<div id="imgView" class="imgview" aria-hidden="true">
+  <div class="iv-bar">
+    <span class="iv-name" id="ivName"></span>
+    <button class="iv-close" id="ivClose" type="button" aria-label="关闭">✕</button>
+  </div>
+  <div class="iv-stage" id="ivStage">
+    <img class="iv-img" id="ivImg" alt="">
+    <div class="iv-tip">双指缩放 · 双击放大 · 下滑关闭</div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -2858,6 +2931,29 @@
     return '/mini/art/?p=' + encodeURIComponent(src);
   }
 
+  /** 一条图片的名字：路径最后一段（去掉 query / 反斜杠），取不到就叫「图片」。 */
+  function imageName(src) {
+    var name = String(src || '').replace(/\\/g, '/').replace(/[?#].*$/, '');
+    name = name.slice(name.lastIndexOf('/') + 1);
+    return name || '图片';
+  }
+
+  /**
+   * 正文里的一张图（2026-11-27 v2）：**不内联摊开**，画成一条 40×40 缩略图 + 文件名，
+   * 点开走全屏查看器（见 ivOpen）。服务端只发 PNG/JPG/WEBP/GIF 且 ≤20MB（见 page.js 的
+   * readImage），这里只负责长相。
+   */
+  function imgRowHtml(src, alt) {
+    var url = imageSrc(src);
+    var name = imageName(src);
+    return '<button class="img-row" type="button" data-img="' + url + '"'
+      + ' data-name="' + escapeHtml(name) + '" aria-label="查看图片：' + escapeHtml(name) + '">'
+      + '<span class="img-thumb"><img class="md-img" src="' + url + '" alt="' + alt + '"'
+      + ' loading="lazy" decoding="async" referrerpolicy="no-referrer"></span>'
+      + '<span class="img-name">' + escapeHtml(name) + '</span>'
+      + '<span class="img-open">查看</span></button>';
+  }
+
   function mdInline(raw) {
     // 行内代码先挖出来换成占位符。不这么做的话，`**x**` 这种字面量
     // 会被后面的粗体规则吃掉，代码里写的东西就显示错了。
@@ -2877,10 +2973,15 @@
       // 三者之外的一律按 ③ 拼成同源路径，所以 `javascript:`、`data:` 这类进不了 src。
       // 必须排在下面那条链接规则前面：否则 `![x](y)` 里的 `[x](y)` 会先被链接规则
       // 吃掉，只剩下一个光秃秃的感叹号。
-      .replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, function (_, alt, src) {
-        return '<img class="md-img" src="' + imageSrc(src) + '" alt="' + alt + '"'
-          + ' loading="lazy" referrerpolicy="no-referrer">';
-      })
+      //
+      // 2026-11-27 v2：① `<…>` 包裹的地址也认（CommonMark 的写法，路径里有空格时
+      // 只能这么写——之前不认，正文里贴的本机截图就成了破图标）。注意这一行跑在
+      // `escapeHtml` **之后**，所以尖括号已经变成 `&lt;…&gt;`，两种形态都要匹配；
+      // ② 画成一条，不再内联。
+      .replace(/!\[([^\]]*)\]\((?:&lt;([^&]+?)&gt;|<([^>]+)>|([^)\s]+))\)/g,
+        function (_, alt, esc, raw, bare) {
+          return imgRowHtml(esc || raw || bare, alt);
+        })
       .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
       .replace(/(^|[^*\w])\*([^*\n]+)\*/g, '$1<em>$2</em>')
       .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
@@ -3059,8 +3160,154 @@
     var el = e.target
     if (!el || el.tagName !== 'IMG' || !el.classList || !el.classList.contains('md-img')) return
     el.classList.add('md-img-bad')
+    // 图片条上那颗缩略图挂了：整条标成坏的，别让用户点开一个空框（见 .img-row.bad）。
+    var row = el.closest ? el.closest('.img-row') : null
+    if (row && row.classList) row.classList.add('bad')
     toast('这张图手机看不到：那个位置没有这张图，或者它不是 PNG/JPG/WEBP/GIF')
   }, true)
+
+  // ---------------- 全屏看图（2026-11-27 v2） ----------------
+  /**
+   * 一张图点了「查看」之后的那一层。手势三条：
+   *   · 双指捏合 → 缩放（1×–6×）；
+   *   · 双击 → 1× ↔ 2.5×；放大后单指拖动平移；
+   *   · 下滑（没放大时）或右上角 ✕ 或 Esc → 关掉。
+   *
+   * 为什么自己写而不是让浏览器整页缩放：整页缩放会把顶栏、输入框一起放大，
+   * 用完还得再缩回去，比看不了还烦。这里只动那张图。
+   */
+  var iv = {
+    scale: 1, x: 0, y: 0, pointers: {}, baseDist: 0, baseScale: 1,
+    startX: 0, startY: 0, tapAt: 0, tapX: 0, tapY: 0, moved: false,
+  };
+
+  function ivApply() {
+    var img = $('ivImg')
+    if (!img) return
+    img.style.transform = 'translate(' + iv.x + 'px,' + iv.y + 'px) scale(' + iv.scale + ')'
+    var stage = $('ivStage')
+    if (stage) stage.style.cursor = iv.scale > 1 ? 'grab' : 'zoom-in'
+  }
+
+  /** 平移只在放大后有意义；边界按舞台大小把图按在里面，别让用户把图甩出屏幕。 */
+  function ivPan(x, y) {
+    var stage = $('ivStage')
+    if (!stage) return
+    var maxX = Math.max(0, (stage.clientWidth * (iv.scale - 1)) / 2)
+    var maxY = Math.max(0, (stage.clientHeight * (iv.scale - 1)) / 2)
+    iv.x = Math.min(maxX, Math.max(-maxX, x))
+    iv.y = Math.min(maxY, Math.max(-maxY, y))
+  }
+
+  function ivZoom(next) {
+    var s = Math.min(6, Math.max(1, next))
+    iv.scale = s
+    if (s === 1) { iv.x = 0; iv.y = 0 } else ivPan(iv.x, iv.y)
+    ivApply()
+  }
+
+  function ivOpen(src, name) {
+    var box = $('imgView')
+    if (!box || !src) return
+    $('ivName').textContent = name || '图片'
+    var img = $('ivImg')
+    img.src = src
+    iv.scale = 1; iv.x = 0; iv.y = 0; iv.pointers = {}
+    ivApply()
+    box.classList.add('open')
+    box.setAttribute('aria-hidden', 'false')
+    // 背景（聊天记录）别跟着滚：手指一划就滑到别的消息上了。
+    document.body.style.overflow = 'hidden'
+  }
+
+  function ivClose() {
+    var box = $('imgView')
+    if (!box || !box.classList.contains('open')) return
+    box.classList.remove('open')
+    box.setAttribute('aria-hidden', 'true')
+    document.body.style.overflow = ''
+    var img = $('ivImg')
+    if (img) img.removeAttribute('src')
+    iv.scale = 1; iv.x = 0; iv.y = 0; iv.pointers = {}
+  }
+
+  (function bindImageView() {
+    var box = $('imgView')
+    var stage = $('ivStage')
+    if (!box || !stage) return
+    $('ivClose').addEventListener('click', ivClose)
+    stage.addEventListener('pointerdown', function (e) {
+      iv.pointers[e.pointerId] = { x: e.clientX, y: e.clientY }
+      iv.startX = e.clientX; iv.startY = e.clientY; iv.moved = false
+      if (Object.keys(iv.pointers).length === 2) {
+        iv.baseDist = ivDistance(); iv.baseScale = iv.scale
+      }
+      if (stage.setPointerCapture) {
+        try { stage.setPointerCapture(e.pointerId) } catch (err) { /* 老浏览器没有，忽略 */ }
+      }
+    })
+    stage.addEventListener('pointermove', function (e) {
+      var p = iv.pointers[e.pointerId]
+      if (!p) return
+      var dx = e.clientX - p.x
+      var dy = e.clientY - p.y
+      if (Math.abs(e.clientX - iv.startX) > 6 || Math.abs(e.clientY - iv.startY) > 6) iv.moved = true
+      p.x = e.clientX; p.y = e.clientY
+      if (Object.keys(iv.pointers).length >= 2) {
+        var d = ivDistance()
+        if (iv.baseDist > 0) ivZoom(iv.baseScale * (d / iv.baseDist))
+      } else if (iv.scale > 1) {
+        ivPan(iv.x + dx, iv.y + dy)
+        ivApply()
+      }
+    })
+    function up(e) {
+      var had = iv.pointers[e.pointerId]
+      delete iv.pointers[e.pointerId]
+      var left = Object.keys(iv.pointers).length
+      if (left === 1) { iv.baseDist = 0; return }
+      if (left > 1 || !had || iv.moved) return
+      // 单指轻点：两次挨得近就是双击（放大 / 还原），否则记下这一次的位置与时刻。
+      var now = Date.now()
+      if (now - iv.tapAt < 320 && Math.abs(e.clientX - iv.tapX) < 30 && Math.abs(e.clientY - iv.tapY) < 30) {
+        ivZoom(iv.scale > 1 ? 1 : 2.5)
+        iv.tapAt = 0
+      } else {
+        iv.tapAt = now; iv.tapX = e.clientX; iv.tapY = e.clientY
+      }
+    }
+    stage.addEventListener('pointerup', up)
+    stage.addEventListener('pointercancel', up)
+    stage.addEventListener('click', function (e) {
+      // 点背景关（放大时点了多半是想拖，别误关）
+      if (e.target === stage && iv.scale === 1) ivClose()
+    })
+    stage.addEventListener('wheel', function (e) {
+      if (!box.classList.contains('open')) return
+      e.preventDefault()
+      ivZoom(iv.scale * (e.deltaY < 0 ? 1.2 : 1 / 1.2))
+    }, { passive: false })
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') ivClose()
+    })
+  })()
+
+  /** 两根手指之间的距离（单指时是 0）。 */
+  function ivDistance() {
+    var ids = Object.keys(iv.pointers)
+    if (ids.length < 2) return 0
+    var a = iv.pointers[ids[0]]
+    var b = iv.pointers[ids[1]]
+    return Math.sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y))
+  }
+
+  // 点任何一条图片条（正文、子智能体文档、提问卡里都可能出现）都走同一个查看器。
+  document.addEventListener('click', function (e) {
+    var row = e.target && e.target.closest ? e.target.closest('.img-row') : null
+    if (!row) return
+    e.preventDefault()
+    ivOpen(row.getAttribute('data-img'), row.getAttribute('data-name'))
+  })
 
   function toast(msg) {
     var el = $('toast');

@@ -318,6 +318,26 @@ test('图片：本机名字和外链都认，且不给注入留口子', () => {
   assert.ok(body.indexOf('md-img') < body.indexOf('<a href='), '图片规则要排在链接规则前面')
 })
 
+test('图片：正文里是一「条」（缩略图 + 文件名），点开交给全屏查看器', () => {
+  // 2026-11-27 v2：不再内联摊开（长截图一张顶两三屏），改成一条 40×40 缩略图 + 文件名。
+  const out = md.mdToHtml('![截图](D:/a/b/shot.png)')
+  assert.match(out, /class="img-row"/, '要画成一条，不是内联大图')
+  assert.match(out, /data-img="\/mini\/art\/\?p=D%3A%2Fa%2Fb%2Fshot\.png"/, '地址仍走同一个图片通道')
+  assert.match(out, /class="img-name">shot\.png</, '条上显示文件名')
+  assert.match(out, /class="md-img"/, '缩略图还是 md-img 那一层（加载失败的提示认它）')
+
+  // 带空格的路径只能写成 `<…>`（CommonMark）：以前不认，正文里贴的本机截图就成了破图标。
+  const wrapped = md.mdToHtml('![截图](<D:/a b/shot 1.png>)')
+  assert.match(wrapped, /class="img-row"/, '尖括号包起来的地址也要认')
+  assert.match(wrapped, /data-name="shot 1\.png"/, '文件名里带空格也要原样留下')
+  assert.doesNotMatch(wrapped, /!\[/, '不能把原文漏出来')
+
+  // 外链同样是一条（缩略图自己去那个网站取）。
+  const remote = md.mdToHtml('![图](https://a.example/x.png)')
+  assert.match(remote, /data-img="https:\/\/a\.example\/x\.png"/)
+  assert.match(remote, /class="img-name">x\.png</, '外链也取路径最后一段当名字')
+})
+
 test('认不出来的语法原样留着，绝不吞内容', () => {
   const src = '普通一行\n\n~~删除线~~ 和 @@乱写@@'
   const out = md.mdToHtml(src)
