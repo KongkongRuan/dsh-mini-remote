@@ -61,18 +61,22 @@ CAPABILITIES THAT AUTOMATED SCANNING MAY FLAG
    service; without that grant the capability is unavailable.
 
 4. Tunnelling.
-   - The package bundles one executable, lib/bin/frpc.exe, the official FRP
-     client (github.com/fatedier/frp, v0.71.1, Windows amd64, built from the
-     upstream release archive). Its Apache-2.0 licence ships beside it at
-     lib/bin/frp-LICENSE, and lib/bin/README.md records the exact upstream
-     version and file. It is spawned only when the owner enables the
-     self-hosted relay, and the plugin accepts a path to a copy the owner
-     installs themselves.
-   - Cloudflare Tunnel (cloudflared) and a Tailscale-compatible node can be used
-     for the same purpose when the owner turns them on. Those programs are
-     downloaded from their official distributions, not bundled.
-   - relay-server/install.sh documents how to deploy the optional relay on the
-     owner's own server. It is not run by the package.
+   - This package ships **no executable files of any kind**. What it can do is
+     start a program the owner supplies: FRP's client (frpc, from
+     github.com/fatedier/frp) for a relay the owner hosts, Cloudflare's
+     cloudflared for a Cloudflare tunnel, or a Tailscale-compatible node. In
+     every case the binary is resolved from a path the owner configures (or a
+     data directory the owner fills); nothing is downloaded or executed
+     automatically by the package.
+   - The FRP client is Apache-2.0 licensed; its licence text and provenance
+     notes now live in the repository under tools/, beside the binary, rather
+     than inside the published package.
+   - Earlier versions (0.2.x through 0.3.1) bundled frpc.exe for convenience.
+     Since 0.3.1 that binary and the relay deployment script moved out of the
+     published package to the project's repository and releases, so the
+     registry copy contains only JavaScript, stylesheets, images and text.
+   - Deploying the optional relay server is described in the repository
+     (relay-server/), not shipped here.
 
 5. A local HTTP server and a WebSocket stream.
    Bound to the host, serving the phone page and the live session stream. Access
@@ -110,8 +114,9 @@ to the public internet.
 OUT OF SCOPE / NOT SUPPORTED
 ----------------------------------------------------------------
 The package contains no persistence mechanism, no privilege escalation, no
-credential harvesting, no obfuscated payload, and no mechanism for a third party
-to obtain access without the owner generating a pairing code on the host. It
+credential harvesting, no obfuscated payload, no executable binaries, and no
+mechanism for a third party to obtain access without the owner generating a
+pairing code on the host. It
 does not ship a keylogger, does not read files outside the authorised folders,
 and does not communicate with any server operated by the maintainer.
 

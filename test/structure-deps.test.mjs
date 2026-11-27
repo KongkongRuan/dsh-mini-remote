@@ -13,7 +13,9 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import {
   MARKERS, PRODUCT_NAMES, readProducts, extractTokens, declaredTokens, productTexts,
@@ -196,4 +198,30 @@ test('发布：双用途声明必须在（contentPolicy + DISCLOSURE），且 DI
     'Acceptable Content', 'designed and documented explicitly', 'off by default']) {
     assert.ok(text.includes(must), `DISCLOSURE 里要提到：${must}`)
   }
+})
+
+test('发布：包里不得带可执行文件或部署脚本（2026-11-27 起）', () => {
+  // 可执行文件是发布扫描最刺眼的信号；自建中继所需的 frpc 改由仓库 Releases 分发。
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+  const files = pkg.files || []
+  assert.equal(files.includes('relay-server'), false, '部署脚本不进 npm 包')
+  assert.equal(files.some((f) => f.startsWith('tools')), false, 'tools/ 里放的是外部程序，不进包')
+
+  // 源码目录里也不该再出现 .exe / .dll / .sh
+  const walk = (dir) => {
+    const out = []
+    for (const name of readdirSync(dir)) {
+      if (name === 'node_modules' || name === '.git') continue
+      const full = join(dir, name)
+      const st = statSync(full)
+      if (st.isDirectory()) out.push(...walk(full))
+      else if (/\.(exe|dll|sh|bat|ps1)$/i.test(name)) out.push(full)
+    }
+    return out
+  }
+  // 只扫会进包的那些目录：仓库里还有 Android 构建产物、临时解包目录，它们与 npm 包无关。
+  const root = fileURLToPath(new URL('..', import.meta.url))
+  const scanned = [join(root, 'lib'), join(root, 'client'), join(root, 'docs'), join(root, 'scripts')]
+  const found = scanned.filter((d) => existsSync(d)).flatMap((d) => walk(d))
+  assert.deepEqual(found, [], '不应有可执行/脚本文件：' + found.join(', '))
 })

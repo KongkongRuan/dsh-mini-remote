@@ -22,7 +22,6 @@
     "docs/guide",
     "docs/DSH-Everywhere.md",
     "scripts/soul-offline-rollback.mjs",
-    "relay-server",
     "cordis.patch.yml",
     "README.md",
     "CHANGELOG.md",
