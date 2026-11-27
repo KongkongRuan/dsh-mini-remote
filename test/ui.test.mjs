@@ -27,6 +27,9 @@ test('圆角只有 2px / 999px / 50% 三档，没有中间值', () => {
   const bad = []
   for (const m of css.matchAll(/border-radius:\s*([^;]+);/g)) {
     const value = m[1].trim()
+    // 底部抽屉的**上两角**是 18px（本机补丁「答题卡改底部抽屉」，真机截图用户拍板过）。
+    // 只放这一个值，不放开 18px 这个档位——其余地方仍然只有 2px / 999px / 50%。
+    if (value === '18px 18px 0 0') continue
     for (const part of value.split(/\s+/)) {
       if (part === '0' || part === '2px' || part === '50%' || part === '999px') continue
       if (part.startsWith('var(--r')) continue // var(--r, 2px) 这种带回落的写法
@@ -154,25 +157,49 @@ test('工序刻度尺只表达队列，不假装知道 Agent 跑到哪一步', (
 // 这里把这两件事都钉住，以后谁想「顺手调整一下」就得先过这一关。
 // ---------------------------------------------------------------------------
 
-test('答题卡/审批卡还是整屏一层，显不显示只由 on 决定（位置没动）', () => {
-  assert.match(css, /#askCard\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0/, '答题卡还是整屏一层')
+test('答题卡是底部抽屉，审批卡还是整屏一层；显不显示只由 on 决定', () => {
+  // 2026-11-27 抽屉改造：答题卡从「整屏一层」改成**底部抽屉**（用户看过真机截图拍板）——
+  // 这样它能一边往上拖、一边看上面的历史。审批卡没改，还是整屏一层。
+  assert.match(css, /#askCard\s*\{[^}]*position:\s*fixed;[^}]*left:\s*0;\s*right:\s*0;\s*bottom:\s*0/,
+    '答题卡是贴在底部的抽屉')
+  assert.match(css, /#askCard\s*\{[^}]*border-radius:\s*18px 18px 0 0/, '抽屉只有上两角是圆的')
   assert.match(css, /#askCard\.on\s*\{\s*display:\s*flex;?\s*\}/, '显不显示只由 on 决定')
+  // 收起的两种写法都在：拖下去的 transition 和 collapsed 档（只剩把手 + 标题）。
+  assert.match(css, /#askCard\.collapsed\s*\{[^}]*max-height:\s*58px/, '收起后只留一条把手')
+  assert.match(css, /#askCard\.dragging\s*\{\s*transition:\s*none;?\s*\}/, '拖拽时不能有过渡，否则跟手会飘')
+
   assert.match(css, /#approveCard\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0/, '审批卡还是整屏一层')
   assert.match(css, /#approveCard\.on\s*\{\s*display:\s*flex;?\s*\}/, '显不显示只由 on 决定')
 })
 
-test('别处答掉了：手机页那两条监听只换状态，不碰位置', () => {
-  // 只读源码做静态检查：页面那一大段脚本里，这两条监听各自只干三件事——
-  // 比对编号、清掉状态、拿掉 `on`。出现位置/尺寸相关的写法就是越界了。
-  for (const [event, label] of [['question-done', '答题卡'], ['approval-done', '审批卡']]) {
-    const from = html.indexOf(`es.addEventListener('${event}'`)
-    assert.ok(from > 0, `页面里找不到 ${event} 这条监听——别处答掉了，${label}就只能干挂着`)
-    const body = html.slice(from, html.indexOf('});', from))
-    assert.match(body, /classList\.remove\('on'\)/, `${label}要收起来就得拿掉 on`)
-    assert.ok(!/\.style\b/.test(body), `${label}不许就地改样式（位置一个像素都不能动）`)
-    assert.ok(!/(top|left|right|bottom|width|height|margin|padding|transform|zoom)\s*:/.test(body),
-      `${label}不许碰任何位置/尺寸`)
-  }
+test('别处答掉了：两条监听只换状态，不碰位置/内容', () => {
+  // 2026-11-27 抽屉改造后的口径：
+  //   · 答题卡（抽屉）：收卡**统一走 closeAskCard()**——它在同一个地方把 on / collapsed /
+  //     dragging 三个状态一起摘掉、清掉拖拽位移、把补给抽屉的底部内边距还回去。
+  //     监听里自己动样式就会留下半个状态（这条踩过）。
+  //   · 审批卡（还是整屏一层）：照旧只拿掉 on。
+  // 两条都仍然不许改内容或尺寸（innerHTML / height / width …）。
+  const qFrom = html.indexOf("es.addEventListener('question-done'")
+  assert.ok(qFrom > 0, '页面里找不到 question-done 这条监听')
+  const q = html.slice(qFrom, html.indexOf('});', qFrom))
+  assert.match(q, /closeAskCard\(\)/, '答题卡要收起来就得走 closeAskCard()')
+  assert.ok(!/\.style\b/.test(q), '答题卡监听里不许就地改样式')
+  assert.ok(!/(innerHTML|top|left|right|bottom|width|height|margin|padding|transform|zoom)\s*[:=]/.test(q),
+    '答题卡监听不许碰任何位置/尺寸/内容')
+
+  const aFrom = html.indexOf("es.addEventListener('approval-done'")
+  assert.ok(aFrom > 0, '页面里找不到 approval-done 这条监听')
+  const a = html.slice(aFrom, html.indexOf('});', aFrom))
+  assert.match(a, /classList\.remove\('on'\)/, '审批卡要收起来就得拿掉 on')
+  assert.ok(!/\.style\b/.test(a), '审批卡不许就地改样式')
+
+  // closeAskCard 自己必须三件事一起做（少一件就会挂半个状态在屏幕上）。
+  const cFrom = html.indexOf('function closeAskCard')
+  const c = html.slice(cFrom, html.indexOf('function syncAskPad', cFrom))
+  assert.ok(cFrom > 0 && c.length > 0, '找不到 closeAskCard')
+  assert.match(c, /classList\.remove\('on', 'collapsed', 'dragging'\)/, '三个状态要一起摘')
+  assert.match(c, /style\.transform = ''/, '拖拽留下的位移要清掉')
+  assert.match(c, /paddingBottom = ''/, '补给抽屉的底部内边距要还回去')
 })
 
 test('别处答掉了：只有飞书答的才说「已在飞书答过」，超时/断线不冒充', () => {

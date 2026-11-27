@@ -1721,16 +1721,21 @@ test('提问钩子：手机在，就把答案原样交回电脑', async (t) => {
   assert.equal(h.askedCount(), 1)
 })
 
-test('提问钩子：手机不在，原样让给电脑', async (t) => {
-  const h = await bootQuestionHook({ phone: false, answer: { answers: [] } })
+test('提问钩子：手机此刻没连，也照样接住（不再因为锁屏把题让出去）', async (t) => {
+  // 2026-11-27 改的规矩：原来「手机不在就让给电脑」，而「不在」= SSE 断了或 20 秒没露面。
+  // 真机事故：发完指令锁屏 → 模型提问 → 判成手机不在 → 题交给电脑 → 手机醒来什么都没有，
+  // 电脑那张卡没人看，一轮吊了 3 小时。现在改成**手机这条永远接住、电脑照常弹、
+  // 谁先答谁生效**；手机不在时最多是它醒来重连后再答。
+  const answer = { answers: [{ id: 'q1', selected: ['A'] }] }
+  const h = await bootQuestionHook({ phone: false, answer })
   t.after(h.restore)
 
   let handed = 0
   const next = () => { handed += 1; return '电脑来答' }
   const got = await h.hook(askRequest(h.sessionId), next)
-  assert.equal(got, '电脑来答')
-  assert.equal(handed, 1)
-  assert.equal(h.askedCount(), 0, '手机不在时不该把问题推出去')
+  assert.deepEqual(got, answer, '手机上答的那份照样算数')
+  assert.equal(h.askedCount(), 1, '手机没连着也要把题推给它（醒来重连时补发）')
+  assert.equal(handed, 1, '电脑那条链照常派发——两边同时弹，谁先答谁生效')
 })
 
 test('提问钩子：问的不是手机上绑着的那个会话，让路', async (t) => {
@@ -1787,20 +1792,22 @@ test('提问钩子：手机上答不出来（返回空），把问题还给电�
 // 而且**飞书没开的时候 keepAlive 一律是 false**——也就是老行为一个字不变。
 // ---------------------------------------------------------------------------
 
-test('提问钩子：把 onPending / keepAlive 一并交给那条接缝；飞书没开时 keepAlive 恒假', async (t) => {
+test('提问钩子：把 onPending / keepAlive 一并交给那条接缝；keepAlive 恒真（不再收摊）', async (t) => {
   const h = await bootQuestionHook({ answer: { answers: [] } })
   t.after(h.restore)
 
-  await h.hook(askRequest(h.sessionId), () => { throw new Error('不该让路') })
+  await h.hook(askRequest(h.sessionId), () => '电脑来答')
   assert.equal(h.calls.length, 1)
   const opts = h.calls[0][2]
   assert.equal(typeof opts?.onPending, 'function', '飞书那边靠它拿到题号，才能对号入座')
   assert.equal(typeof opts?.keepAlive, 'function', '手机全断了要不要收摊，多了这一个判据')
-  assert.equal(opts.keepAlive(), false, '飞书没开：和以前一样，手机不在就把题还给电脑')
+  // 2026-11-27 起**恒真**：锁屏只是睡着，题还挂在它名下；真没人答还有「停止」这条出路。
+  // 见 lib/index.js 里那段「提问同时给手机和电脑」的说明。
+  assert.equal(opts.keepAlive(), true, '手机断了也不收摊：醒来重连能补发（原来这里是 false）')
 
   // onPending 交出来的题号要原样转给飞书那边（这里飞书没开，只是不能抛）。
   opts.onPending('q7')
-  assert.equal(opts.keepAlive(), false)
+  assert.equal(opts.keepAlive(), true)
 })
 
 // ---------------------------------------------------------------------------
@@ -2462,11 +2469,14 @@ test('声明成 volatile 的字段只有那两个：能兑现的才标', async (
   assert.ok(dict, '插件要导出 Config：标准那条编辑通道和 profile 补丁都按它来')
 
   const volatile = Object.entries(dict).filter(([, s]) => s?.meta?.volatile).map(([k]) => k).sort()
-  assert.deepEqual(volatile, ['defaultMode', 'notify'],
+  // publicUrl（本机补丁，2026-11-27 自建 frp 中继）：配对面板每次现读，改了不用重载。
+  // historyTurns（本机补丁，2026-11-27）：快照带最近几轮。标 volatile 是**能兑现**的
+  // ——store 每次取用它都现读（见 lib/store.js 的 turnsSetting 与 index.js 传的函数）。
+  assert.deepEqual(volatile, ['defaultMode', 'historyTurns', 'notify', 'publicUrl'],
     '多标一个是谎话（DSH 就不再重载，而我们手里还是旧值），少标一个就白白多重载一次')
 
   assert.deepEqual(Object.keys(dict).sort(),
-    ['agentAllowManage', 'agentAllowShell', 'agentAllowWrite', 'agentMode', 'agentRoots', 'agentToken', 'agentUrl', 'allowAgent', 'allowRemoteComputers', 'bindAddress', 'defaultMode', 'feishu', 'maxHistory', 'notify', 'port', 'token', 'tunnel'],
+    ['agentAllowManage', 'agentAllowShell', 'agentAllowWrite', 'agentMode', 'agentRoots', 'agentToken', 'agentUrl', 'allowAgent', 'allowRemoteComputers', 'bindAddress', 'defaultMode', 'feishu', 'historyTurns', 'maxHistory', 'notify', 'port', 'publicUrl', 'token', 'tunnel'],
     '每个设置都该在声明里露面，否则标准通道看不见它')
   // 飞书那一块**故意不标 volatile**：它的长连接是拿 appId/appSecret 建的，改了凭据
   // 就得把连接整个换掉，"就地改一个值"兑现不了。上面那条 volatile 清单因此不该有它。

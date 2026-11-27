@@ -5145,8 +5145,9 @@
         // 才清空——不带就说明这份快照没有「前面还有」的信息，留着上一个会话的值会骗人。
         if (!('historyHasMore' in snap)) state.historyHasMore = false;
         if (!('historyOldestTurn' in snap)) state.historyOldestTurn = null;
-        chatTurns = CHAT_TURNS;
-        chatTopOwned = -1;
+        // **不在这里碰 chatTurns / chatTopOwned**：那两样是聊天分页自己的账，换会话时
+        // 由 buildChat 的 chatTurnsFor 判据收回首屏（见那里）。写在这儿还有第二个坏处：
+        // page.test.mjs 的 snapshotHarness 只切 applySnapshot 这一段，会引用到切片外的变量。
       }
       // 换了会话，指令菜单那份缓存就作废了（指令表是每个会话一份的，这个会话没在跑
       // 时一条都读不到，见「斜杠指令」那一段）。重画一次，它自己会发现数据不属于

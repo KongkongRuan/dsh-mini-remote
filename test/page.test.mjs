@@ -2180,7 +2180,8 @@ test('停止请求失败：按钮复位，并且说人话', async () => {
   await new Promise((r) => setImmediate(r))
   assert.equal(w.els.btnStop.disabled, false, '失败了要能再按')
   assert.equal(w.els.btnStop.textContent, '停止')
-  assert.equal(w.toasts[0], '停不下来', '要把服务端的话原样带出来')
+  assert.equal(w.toasts[0], '停止没发出去：停不下来',
+    '要把服务端的话原样带出来（前面那半句是本机补丁加的：说明是哪一步失败的）')
 })
 
 test('跑完之后按钮自己复位，下一轮才是干净的「停止」', async () => {
@@ -3054,21 +3055,30 @@ function chatPager({
 }
 
 /** 一串够长的历史，text 是「第 N 条」，方便断言哪一条在、哪一条还没铺出来。 */
+/**
+ * 一串够长的历史，text 是「第 N 条」，方便断言哪一条在、哪一条还没铺出来。
+ *
+ * **一条 = 一轮**（2026-11-27 改单位后）：窗口是按轮切的（见 page.html 的 CHAT_TURNS），
+ * 这里给每条一个递增的 `turn`，于是「第 N 条」同时就是「第 N 轮」——断言里说「3 轮」
+ * 一眼能对上是哪三条。真会话里一轮里有好几条（指令 + 回答 + 通知），那点由
+ * 「没有轮号的行跟着下一轮走」那条口径兜着，另有用例。
+ */
 function longHistory(n) {
   return Array.from({ length: n }, (_, i) => ({
-    role: 'assistant', text: `第 ${i + 1} 条`, timestamp: i + 1,
+    role: 'assistant', text: `第 ${i + 1} 条`, timestamp: i + 1, turn: i + 1,
   }))
 }
 
-test('聊天记录首屏只铺最近 40 条', () => {
+test('聊天记录首屏只铺最近 3 轮', () => {
   // 用户报的「点一个没选中的会话切换很慢」：不是网络也不是服务端（本机实测那三个
   // 接口 168 / 36 / 107 毫秒），是这一页一次把推上来的 200 条全铺出来。
   const p = chatPager({ history: longHistory(200) }).open()
-  assert.equal(p.count(), 40, '首屏只摊 40 条，剩下的等他往上滑')
+  assert.equal(p.count(), 3, '首屏只摊 3 轮，剩下的等他往上滑')
   assert.ok(p.replyEl.innerHTML.includes('第 200 条'), '最新那条必须在')
-  assert.ok(p.replyEl.innerHTML.includes('第 161 条'), '从最新往回数满 40 条')
-  assert.ok(!p.replyEl.innerHTML.includes('第 160 条'), '第 41 条要留给下一屏')
+  assert.ok(p.replyEl.innerHTML.includes('第 198 条'), '从最新往回数满 3 轮')
+  assert.ok(!p.replyEl.innerHTML.includes('第 197 条'), '第 4 轮要留给下一屏')
   assert.match(p.replyEl.innerHTML, /往上滑看更早的/, '本地还有更早的，就得说一句')
+  assert.match(p.replyEl.innerHTML, /还有 197 轮/, '提示里说的是「还有几轮」——条数没人算得出要滑几次')
 })
 
 test('往上滑到接近顶部：再放一屏，并且位置原样不动', () => {
@@ -3076,50 +3086,50 @@ test('往上滑到接近顶部：再放一屏，并且位置原样不动', () =>
   p.scrollTo(30)
   const fromBottom = p.mainEl.scrollHeight - p.mainEl.scrollTop
   p.maybeGrowChat()
-  assert.equal(p.count(), 80, '再放一屏：40 + 40')
-  assert.ok(p.replyEl.innerHTML.includes('第 121 条'), '往回多铺了一屏出来')
-  assert.ok(!p.replyEl.innerHTML.includes('第 120 条'), '再多就没有了，一屏就是一屏')
+  assert.equal(p.count(), 6, '再放一屏：3 + 3 轮')
+  assert.ok(p.replyEl.innerHTML.includes('第 195 条'), '往回多铺了三轮出来')
+  assert.ok(!p.replyEl.innerHTML.includes('第 194 条'), '再多就没有了，一屏就是一屏')
   assert.equal(p.mainEl.scrollHeight - p.mainEl.scrollTop, fromBottom,
     '离底部的距离要原样不动——他正看着的那几行一格都不该走（这是「不跳走」的唯一判据）')
 
   // 滑下来了就不再放：一屏一屏地来，不是一滑就哗啦啦铺完。
   p.scrollTo(400)
   p.maybeGrowChat()
-  assert.equal(p.count(), 80, '没靠近顶部就不该再放')
+  assert.equal(p.count(), 6, '没靠近顶部就不该再放')
 })
 
 test('本地的记录放完了：不再放，那句提示也收起来', () => {
-  const p = chatPager({ history: longHistory(50) }).open()
-  assert.equal(p.count(), 40, '先铺 40 条')
+  const p = chatPager({ history: longHistory(5) }).open()
+  assert.equal(p.count(), 3, '先铺 3 轮')
   assert.match(p.replyEl.innerHTML, /往上滑看更早的/)
   p.scrollTo(10)
   p.maybeGrowChat()
-  assert.equal(p.count(), 50, '只剩 10 条就全铺出来，不多不少')
+  assert.equal(p.count(), 5, '只剩 2 轮就全铺出来，不多不少')
   assert.ok(!p.replyEl.innerHTML.includes('往上滑看更早的'),
     '本地都放完了就别再催他往上滑（服务端截断那句另说，见 .history-note）')
   p.maybeGrowChat()
-  assert.equal(p.count(), 50, '再滑也不动了')
+  assert.equal(p.count(), 5, '再滑也不动了')
 })
 
-test('换会话时窗口收回首屏：上一个会话铺到多少条都不带过来', () => {
+test('换会话时窗口收回首屏：上一个会话铺到多少轮都不带过来', () => {
   // 这条要修的就是「切会话慢」——铺开的量必须跟着会话走，不能攒着。
   const p = chatPager({ history: longHistory(100) }).open()
   p.scrollTo(10)
   p.maybeGrowChat()
-  assert.equal(p.count(), 80)
+  assert.equal(p.count(), 6, '先放一屏：3 + 3')
   p.state.boundSessionId = 's2'
   p.state.history = longHistory(200)
   p.render()
-  assert.equal(p.count(), 40, '换到新会话就是新的一屏，不继承上一个会话铺开的量')
+  assert.equal(p.count(), 3, '换到新会话就是新的一屏，不继承上一个会话铺开的量')
 })
 
 test('跑着的时候来的新消息，照旧铺在最后，不会被窗口挡在外面', () => {
   const p = chatPager({ history: longHistory(100) }).open()
-  p.state.history = p.state.history.concat([{ role: 'assistant', text: '刚写完的那条', timestamp: 101 }])
+  p.state.history = p.state.history.concat([{ role: 'assistant', text: '刚写完的那条', timestamp: 101, turn: 101 }])
   p.render()
   assert.ok(p.replyEl.innerHTML.includes('刚写完的那条'), '新消息必须露出来（流式追加不能被窗口挡住）')
-  assert.ok(p.replyEl.innerHTML.includes('第 62 条'), '窗口还是 40 条，整体往后挪一条')
-  assert.ok(!p.replyEl.innerHTML.includes('第 61 条'), '最老的那条让出去')
+  assert.ok(p.replyEl.innerHTML.includes('第 99 条'), '窗口还是 3 轮，整体往后挪一轮')
+  assert.ok(!p.replyEl.innerHTML.includes('第 98 条'), '最老的那一轮让出去')
 })
 
 test('滑到最下面读内容时，那句「往上滑看更早的」不许露脸', () => {
@@ -3131,7 +3141,10 @@ test('滑到最下面读内容时，那句「往上滑看更早的」不许露�
     '光不显示还不够：它得是「收着」的这一档（那块地方留着，收 / 露之间不顶内容）')
 
   // 往上滑到触发线以内：这时候它才该露（正是用得着它的时候）。
-  p.scrollTo(30).scrolled()
+  // 位置用 0 而不是 30：窗口缩到 3 轮之后，首屏内容还没一屏高，30px 处同时满足
+  // 「靠顶」和「到底」（48px 容差），两条判据撞在一起就验不出东西了。滑到 0 才是
+  // 真·靠顶，这一下也会顺带放一屏出来（内容变高，后面「滑回底部」才验得准）。
+  p.scrollTo(0).scrolled()
   assert.ok(!p.noteHidden(), '靠近顶部了，该它出来说话了')
 
   // 再滑回最下面：必须收起来。这一半只能靠滚动里那根线——中间不会来快照，
@@ -5046,33 +5059,39 @@ function fullPager({ history, trajectory = [] } = {}) {
 test('完整模式：往上滑也一屏一屏往前放，放完走 render() 总分发（轨迹区不许被画没）', () => {
   const p = fullPager({
     history: longHistory(200),
-    trajectory: [{ turn: 1, state: 'ok', entries: [trajTool('k1'), trajTool('k2', { step: 2 })] }],
+    // 一组在窗口内（第 200 轮），一组比窗口还早（第 1 轮）：后者**不许**被塞到页尾，
+    // 它只是还没取回来（见 page.html 里 trajInterleave 的「已加载下界」）。
+    trajectory: [
+      { turn: 200, state: 'ok', entries: [trajTool('k1'), trajTool('k2', { step: 2 })] },
+      { turn: 1, state: 'ok', entries: [trajTool('k3')] },
+    ],
   })
   p.render()
-  assert.equal(p.count(), 40, '首屏口径与聊天一致：只铺最近 40 条')
-  assert.ok(p.replyEl.innerHTML.includes('第 161 条') && !p.replyEl.innerHTML.includes('第 160 条'),
-    '从最新往回数满 40 条，第 41 条留给下一屏（同聊天的裁剪口径）')
-  assert.match(p.replyEl.innerHTML, /data-traj-group/, '过程组在：完整模式画的就是聊天+穿插的轨迹')
+  assert.equal(p.count(), 3, '首屏口径与聊天一致：只铺最近 3 轮')
+  assert.ok(p.replyEl.innerHTML.includes('第 198 条') && !p.replyEl.innerHTML.includes('第 197 条'),
+    '从最新往回数满 3 轮，第 4 轮留给下一屏（同聊天的裁剪口径）')
+  assert.equal((p.replyEl.innerHTML.match(/data-traj-group/g) || []).length, 1,
+    '只有窗口内那一组过程在；窗口外那组不许堆到页尾')
 
   p.mainEl.scrollTop = 30
   const fromBottom = p.mainEl.scrollHeight - p.mainEl.scrollTop
   p.hintEl.textContent = ''
   p.maybeGrowChat()
-  assert.equal(p.count(), 80, '完整模式也要放一屏：40 + 40')
+  assert.equal(p.count(), 6, '完整模式也要放一屏：3 + 3 轮')
   assert.equal(p.mainEl.scrollHeight - p.mainEl.scrollTop, fromBottom,
     '位置补偿照旧：离底部的距离一格不动')
-  assert.match(p.replyEl.innerHTML, /data-traj-group/,
+  assert.equal((p.replyEl.innerHTML.match(/data-traj-group/g) || []).length, 1,
     '放完过程组还要在——必须走 render() 总分发，直画 renderChat 会把它抹掉')
   assert.equal(p.hintEl.textContent, '完整：附加每一步过程',
     'hintMode 也由 render() 刷新过（renderChat 单画不会碰它）')
 
   p.mainEl.scrollTop = 400
   p.maybeGrowChat()
-  assert.equal(p.count(), 80, '没靠近顶部就不该再放')
+  assert.equal(p.count(), 6, '没靠近顶部就不该再放')
 
   p.state.mode = 'chat'
   p.render()
-  assert.equal(p.count(), 80, '切到聊天：窗口跟着会话走，铺开的量不缩水')
+  assert.equal(p.count(), 6, '切到聊天：窗口跟着会话走，铺开的量不缩水')
 })
 
 test('SSE 推来的回复在「完整」模式也进聊天记录（单帧仍不进）', () => {
