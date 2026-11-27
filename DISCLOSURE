@@ -98,6 +98,27 @@ CAPABILITIES THAT AUTOMATED SCANNING MAY FLAG
    unless the owner configures them.
 
 
+THIRD-PARTY CODE INSIDE THE TARBALL
+----------------------------------------------------------------
+About 1.7 MB of the package is unmodified, minified builds of two upstream
+front-end libraries, shipped so the phone page can render documents and maths
+without fetching anything from a CDN at runtime:
+
+  - PDF.js (Mozilla, Apache-2.0): pdf.min.js and pdf.worker.min.js, used to show
+    PDF attachments inline.
+  - KaTeX (MIT): katex.min.js, katex.min.css and its font files, used to render
+    mathematical notation.
+
+They are minified because that is how upstream publishes them; they are not
+obfuscated, they are byte-for-byte upstream artefacts, and their versions are
+recorded in the repository. Nothing here is first-party code, and neither
+library performs network, process or filesystem operations beyond rendering.
+
+The plugin's own code is plain, unminified JavaScript under lib/ and client/.
+
+package.json also declares third-party identifiers (`foo/bar` form); those are
+standard Cordis service names, not URLs or commands.
+
 HOW ACCESS IS AUTHORISED
 ----------------------------------------------------------------
 - The host is closed to other devices until the owner turns on remote access.
