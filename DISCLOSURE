@@ -61,13 +61,23 @@ CAPABILITIES THAT AUTOMATED SCANNING MAY FLAG
    service; without that grant the capability is unavailable.
 
 4. Tunnelling.
-   - This package ships **no executable files of any kind**. What it can do is
-     start a program the owner supplies: FRP's client (frpc, from
-     github.com/fatedier/frp) for a relay the owner hosts, Cloudflare's
-     cloudflared for a Cloudflare tunnel, or a Tailscale-compatible node. In
-     every case the binary is resolved from a path the owner configures (or a
-     data directory the owner fills); nothing is downloaded or executed
-     automatically by the package.
+   - This package ships **no executable files of any kind**. At runtime it can
+     use three external programs: Cloudflare's cloudflared, FRP's client frpc,
+     and a Tailscale-compatible node.
+   - How those programs arrive is stated plainly, because it matters:
+       * cloudflared: if neither a configured path, nor PATH, nor a copy already
+         downloaded by the dsh-pocket plugin is available, the plugin downloads
+         it once from Cloudflare's official GitHub releases (with mirror
+         fallbacks) into its own data directory. About 50 MB, one time, and only
+         after the owner turns on a tunnel.
+       * frpc: downloaded on demand, with the same pattern as cloudflared, from
+         this project's own GitHub releases. Its SHA-256 is pinned in the source
+         and checked after download; a mismatch is discarded. About 16 MB, one
+         time, only when the owner switches on a relay they host themselves.
+       * Tailscale: whatever the owner installed; the plugin only reads its
+         local socket or CLI.
+   - No program is started without an explicit action by the owner switching
+     that feature on.
    - The FRP client is Apache-2.0 licensed; its licence text and provenance
      notes now live in the repository under tools/, beside the binary, rather
      than inside the published package.

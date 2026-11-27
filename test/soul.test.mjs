@@ -2129,3 +2129,16 @@ test('构建脚本待批准：能查出来、能批准，且改前有备份', as
     assert.ok(readdirSync(dir).some((n) => n.startsWith('pnpm-workspace.yaml.bak-')), '改前要备份')
   })
 })
+
+test('frpc 按需下载：哈希钉死、只在需要时取（2026-11-27）', async () => {
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../lib/frpc-download.js', import.meta.url), 'utf8')
+  assert.match(src, /export const FRPC_SHA256 = '[0-9a-f]{64}'/, 'sha256 必须是完整 64 位')
+  assert.match(src, /if \(got !== FRPC_SHA256\)/, '下载后必须核对')
+  assert.match(src, /xingzhen199186\/dsh-mini-remote\/releases\/download/, '从项目自己的发布页取')
+
+  const relay = readFileSync(new URL('../lib/self-relay.js', import.meta.url), 'utf8')
+  assert.match(relay, /ensureFrpc\(\{ dataDir, log \}\)/, '自建中继启动前要自动取回')
+  // 已有本地文件时不该再下载
+  assert.match(src, /if \(existsSync\(target\) && statSync\(target\)\.size > 1024 \* 1024\) return target/)
+})
