@@ -165,15 +165,20 @@ test('版本：engines.dsh 和 peerDependencies 声明的是同一个区间（�
  * 现在换成两条互证的：`package.json` 的 version 必须等于 `CHANGELOG.md` 最顶上那条。
  * 发版照旧改两处（包版本、日志一节），但**它们语义上本来就是一件事**，
  * 忘一处必红，而且红的话说的是人话（"这两处要一起改"）。
+ *
+ * **`## [未发布]` 不算版本条目**（2026-11-27 加的，Keep a Changelog 里的 Unreleased）：
+ * 这一轮改动还没发版，日志得先记下来，但不能因此把"两处一起改"这条检查关掉——
+ * 所以它排在顶上时，往下找**第一条真正的版本号**来对，形状照旧钉死。
  */
 test('版本：package.json 的 version 必须等于 CHANGELOG 最顶上那一条', () => {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
   const changelog = readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8')
-  const first = changelog.match(/^##\s*\[([^\]]+)\]/m)
+  const entries = [...changelog.matchAll(/^##\s*\[([^\]]+)\]/gm)].map((one) => one[1])
+  const first = entries.find((one) => one !== '未发布')
   assert.ok(first, 'CHANGELOG 里找不到 `## [版本]` 形状的条目，发版惯例已经走样了')
-  assert.equal(pkg.version, first[1],
+  assert.equal(pkg.version, first,
     'package.json 的 version 和 CHANGELOG 最顶上那条不一致：发版时这两处要一起改')
   // 顺带钉形状：带 `v` 前缀或四位号时人眼会和 package.json 对不上，而测试当时看不出来。
-  assert.match(first[1], /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/,
-    `CHANGELOG 那条版本号形状不对：${JSON.stringify(first[1])}（要 x.y.z，预发布就 x.y.z-xxx）`)
+  assert.match(first, /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/,
+    `CHANGELOG 那条版本号形状不对：${JSON.stringify(first)}（要 x.y.z，预发布就 x.y.z-xxx）`)
 })

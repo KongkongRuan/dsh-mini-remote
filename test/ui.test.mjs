@@ -10,9 +10,9 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { pageSource } from './page-source.mjs'
 
-const html = readFileSync(new URL('../lib/page.html', import.meta.url), 'utf8')
+const html = pageSource()
 const css = html.slice(html.indexOf('<style>'), html.indexOf('</style>'))
 
 test('设计令牌：圆角只有 2px 一档，强调色是暖金 #c9a55c', () => {

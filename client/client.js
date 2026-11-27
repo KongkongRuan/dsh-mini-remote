@@ -28,7 +28,7 @@ window.__ModuleLoader__.load({
      *
      * 顶上那条横条要不要自动收起来，取决于这一条：**触摸屏没有悬停这回事**，藏起来就成了
      * 摸不到的东西——而它上面挂着「← 返回列表」，是那一屏唯一的出口。
-     * 和 `lib/page.html` 那条镜像顶栏同一条口径（那边用媒体查询，这边是 inline style，
+     * 和 `lib/page/style.css` 那条镜像顶栏同一条口径（那边用媒体查询，这边是 inline style，
      * 所以在加载时算一次就够）。
      *
      * **算不出来就当作没有悬停** → 横条常驻。宁可多占一行，不可让人出不去。
@@ -133,7 +133,7 @@ window.__ModuleLoader__.load({
       //
       // **框正常显示时它会自动收起**（鼠标碰顶才滑出，2026-10-17 用户要求）：
       // 那一行平时占着四十来像素，而这块面板是拿来"看另一台电脑的界面"的，能多给一行是一行。
-      // 收起用 `max-height: 0`、**不是透明**——透明还占着高度，框就长不上来（同 lib/page.html 那套）。
+      // 收起用 `max-height: 0`、**不是透明**——透明还占着高度，框就长不上来（同 lib/page/style.css 那套）。
       screen: { position: 'relative', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', width: '100%', height: '100%', minHeight: 320 },
       /** 收起时最上面那条 16px 的感应带：鼠标碰到就把它勾出来。 */
       screenHot: { position: 'absolute', left: 0, right: 0, top: 0, height: 16, zIndex: 2 },
@@ -3750,7 +3750,7 @@ window.__ModuleLoader__.load({
        * （「← 返回列表」和「再试一次」），**藏起来等于把人关在里面**。所以那几种一律常驻。
        *
        * 没有悬停能力的设备（触摸屏）也一律常驻：触摸没有"碰一下顶"这回事，
-       * 藏了就是摸不到（和 `lib/page.html` 那条镜像顶栏同一条口径）。
+       * 藏了就是摸不到（和 `lib/page/style.css` 那条镜像顶栏同一条口径）。
        *
        * ## 感应带那 16px 不能省
        *

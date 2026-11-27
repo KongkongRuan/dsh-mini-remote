@@ -32,7 +32,10 @@
 $src = 'D:\project\DSH优化\dsh-mini-remote\lib'
 $dst = "$env:USERPROFILE\.dsh\profiles\desktop\node_modules\dsh-mini-remote\lib"
 Copy-Item "$src\*.js","$src\*.html" $dst -Force
-# 再重启 DSH（page.html 只在启动时读进内存）
+# 手机页 2026-11-27 起拆成 lib/page/ 下的三份（shell.html / style.css / app.js），
+# **这一行不能少**：只拷顶层的 *.js / *.html 会漏掉整个 page 目录，页面会读不到模板。
+Copy-Item "$src\page" $dst -Recurse -Force
+# 再重启 DSH（lib/page/ 那三份只在启动时读进内存）
 ```
 
 回滚就是把 `~/.dsh/dsh-mini-remote/backup-*/` 里那份拷回去。
@@ -64,18 +67,18 @@ git fetch origin --tags          # 拉上游的版本
    ```powershell
    node --test test/history.test.mjs test/trajectory.test.mjs test/commands.test.mjs test/log-tail.test.mjs test/page.test.mjs
    ```
-   `page.test.mjs` 是**按源码锚点切片**的，改 `page.html` 时它会立刻报警——这正是
-   2026-11-27 之前缺的那道保险。
+   `page.test.mjs` 是**按源码锚点切片**的，改 `lib/page/` 那三份时它会立刻报警——这正是
+   2026-11-27 之前缺的那道保险。（它读的是拼回整份的页面，见 `test/page-source.mjs`。）
 2. 项目目录里的离线靶场（浏览器 + 假 `EventSource`，不重启 DSH 就能验渲染）：
    `D:\project\DSH优化\手机遥控\verify\` 下五个 `mmr-*.mjs`。
-3. `node --check` 每个改过的 `.js`，以及 `page.html` 里那段内联脚本。
+3. `node --check` 每个改过的 `.js`，以及 `lib/page/app.js` 和 `lib/page/shell.html` 里那段内联脚本。
 
 ## 以后要跟上游升级
 
 ```powershell
 git fetch origin --tags
 git checkout -b local/0.2.7-fresh v0.2.7      # 或 main
-git cherry-pick <本分支的提交>                  # 冲突主要会落在 page.html / server.js
+git cherry-pick <本分支的提交>                  # 冲突主要会落在 lib/page/ / server.js
 ```
 `0.2.6` 重写了中继、配对和 token（`relay-server/`、邀请码、HttpOnly cookie），
 `pairing.js` 那一处补丁大概率要重写——升级时先看 `git diff v0.2.5 v0.2.6 -- lib/pairing.js`。

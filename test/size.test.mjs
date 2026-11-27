@@ -1,18 +1,26 @@
 /**
- * 体量守门（2026-10-17）。
+ * 体量守门（2026-10-17 立；2026-11-27 跟着拆页改写）。
  *
- * 这两条守的不是"代码质量"，是**别无声地长大**。
+ * 这几条守的不是"代码质量"，是**别无声地长大**。
  *
- * 手机页 8,211 行 / 433 KB、发布包 2.1 MB——这两个数本身都不是问题，问题在它们
- * **悄悄**变大的时候没人发现：每次加一点，半年后回头看就不知道为什么改一个气泡要
- * 在八千行里找位置了。
+ * ## 页面现在由三份源文件组成，但对外还是一页
+ *
+ * 2026-11-27 之前是单文件 `lib/page.html`（9,977 行 / 525 KB）：改一个气泡要在一万行里
+ * 找位置。现在拆成 `lib/page/` 下的 shell.html（骨架）、style.css、app.js，
+ * 服务器启动时拼回一份 HTML 发出去——**拼回来和原文件逐字节一致**，是迁移脚本
+ * `tools/split-page.mjs` 当场断言过的，不是"差不多"。
+ *
+ * 所以这里量的仍然是**拼起来那一页**；三份各自的上限只防"某一份偷偷长成新的巨无霸"。
  *
  * ## 阈值怎么定的
  *
- * 页面：当前 8,211 行 × 约 1.06 = 8,700；字节按 433 KB × 约 1.1。拦的是"又长了一千行"
- * 这种，不拦正常改动。真需要长过去的时候改这个数——那一下就是该停下来想一想的时刻。
+ * 拼起来：当前 9,978 行 / 525 KB，守 10,100 行 / 530 KB。拦的是"又长了一千行"这种，
+ * 不拦正常改动。真需要长过去的时候改这个数——那一下就是该停下来想一想的时刻。
  * （注意：这里的行数**含空行**。`Measure-Object -Line` 那一类工具不数空行，
  * 用它会把这文件读成 6,246 行，差了两千，口径不一样。）
+ *
+ * 压缩后：brotli 153 KB、gzip 187 KB，守 170 / 205 KB。这一条是 2026-11-27 新加的：
+ * 传输层加了压缩之后，"页面重不重"终于有一个和用户直接相关的数字可守了。
  *
  * ## 为什么包体要调 `npm pack` 而不是自己遍历目录
  *
@@ -20,42 +28,56 @@
  * "包体太大"——**错了**。`lib/art/.npmignore` 里一行 `out-*` 把过程产物挡在包外，
  * 真实包体只有 2.1 MB。**自己模拟打包规则 = 第二份真相**，迟早和 npm 说的不一样。
  * 所以这里直接问 npm 要数字。
- *
- * ## 为什么不拆页面
- *
- * 它和 service worker 缓存、`__BUILD__` 注入、以及一批"对着页面源码文本匹配"的
- * 活体断言三重耦合。拆它得单独一轮，不该顺手做。先用一条线把它拦住。
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execSync } from 'node:child_process'
-import { readFileSync, statSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { brotliCompressSync, gzipSync, constants as zlibConstants } from 'node:zlib'
+
+import { pageFiles } from '../lib/page.js'
+import { pageSource } from './page-source.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
+const KB = (n) => Math.round(n / 1024)
 
-test('手机页体量：不超过 10100 行、530 KB（超了就该重新想结构，不是继续往下堆）', () => {
-  const file = join(ROOT, 'lib/page.html')
-  // 这个仓库统一 LF（见 .gitattributes），所以按 `\n` 切就是真实行数。
-  const lines = readFileSync(file, 'utf8').split('\n').length
-  const kb = Math.round(statSync(file).size / 1024)
-  // 守门线 2026-11-27 从 8700 行 / 480 KB 抬到 9200 / 520：本机补丁里多了底部抽屉、
-  // 答题回显 chip、按轮分页这几块（约 +270 行），都是**同一页里的功能**，拆不掉。
-  // 当天又抬到 9700：聊天模式的「思考 + 工具步骤」改成了三层折叠的过程清单
-  // （过程组 + 每步一行 + 增量更新，约 +210 行），和上一条同样拆不掉。
-  // 当晚第三次抬到 9900 / 525：「答完关掉卡片 + 显示选了什么」——本地结果 chip +
-  // question-state 对账 + 来源/结果文案（约 +145 行），还是要动这一页。
-  // **第四次（同一天深夜）抬到 10100 / 530**：回答左上角的计费总量徽标——三处渲染
-  // （聊天/单帧/流式）+ usage 帧处理 + 1 秒刷新的局部重画 + 样式，约 +110 行。
-  // 上一条注释写着「下一次再加功能，先拆页」，这次没拆：拆页要动 page.test.mjs 的
-  // 源码切片锚点（它按函数名切字符串），是单独一件事，混在这个功能里做只会两头都做坏。
-  // **拆页仍然欠着**——下次再往这页加功能之前，先把它做完。
-  assert.ok(lines <= 10100, `lib/page.html 已经 ${lines} 行，越过守门线 10100 了`)
-  assert.ok(kb <= 530, `lib/page.html 已经 ${kb} KB，越过守门线 530 KB 了`)
+/** 每份源文件的体量：`[pageFiles() 的键, 文件名, 行数上限, KB 上限]`。 */
+const PARTS = [
+  ['shell', 'shell.html', 600, 35],
+  ['css', 'style.css', 2150, 130],
+  ['app', 'app.js', 8250, 410],
+]
+
+test('手机页体量：拼起来不超过 10100 行 / 530 KB（超了就该重新想结构，不是继续往下堆）', () => {
+  const html = pageSource()
+  const lines = html.split('\n').length
+  const kb = KB(Buffer.byteLength(html))
+  assert.ok(lines <= 10100, `手机页拼起来已经 ${lines} 行，越过守门线 10100 了`)
+  assert.ok(kb <= 530, `手机页拼起来已经 ${kb} KB，越过守门线 530 KB 了`)
 })
 
-test('发布包体量：问 npm 要真实数字，不超过 3 MB（现在约 2.1 MB）', () => {
+test('手机页的每一份也各有上限（别再让某一份长成新的巨无霸）', () => {
+  const files = pageFiles()
+  for (const [key, name, maxLines, maxKb] of PARTS) {
+    const text = readFileSync(files[key], 'utf8')
+    const lines = text.split('\n').length
+    const kb = KB(Buffer.byteLength(text))
+    assert.ok(lines <= maxLines, `lib/page/${name} 已经 ${lines} 行，越过守门线 ${maxLines} 了`)
+    assert.ok(kb <= maxKb, `lib/page/${name} 已经 ${kb} KB，越过守门线 ${maxKb} KB 了`)
+  }
+})
+
+test('传输体量：brotli ≤ 170 KB、gzip ≤ 205 KB（这是手机真正要下的那份）', () => {
+  const raw = Buffer.from(pageSource(), 'utf8')
+  const br = brotliCompressSync(raw, { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 9 } }).length
+  const gz = gzipSync(raw, { level: 6 }).length
+  assert.ok(KB(br) <= 170, `brotli 后已经 ${KB(br)} KB，越过守门线 170 KB 了`)
+  assert.ok(KB(gz) <= 205, `gzip 后已经 ${KB(gz)} KB，越过守门线 205 KB 了`)
+})
+
+test('发布包体量：问 npm 要真实数字，不超过 3 MB（现在约 2.6 MB）', () => {
   // `--dry-run` 不写文件；`--json` 让我们拿到 `unpackedSize`，那是 npm 自己算的。
   let parsed
   try {

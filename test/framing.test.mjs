@@ -16,11 +16,11 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { pageSource } from './page-source.mjs'
 
-const html = readFileSync(new URL('../lib/page.html', import.meta.url), 'utf8')
+const html = pageSource()
 
 /** 抠出某条规则的花括号内容。选择器在模板里是唯一的，找不到就直接失败。 */
 function rule(selector) {

@@ -10,8 +10,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { pageSource } from './page-source.mjs'
 
-const html = readFileSync(new URL('../lib/page.html', import.meta.url), 'utf8')
+const html = pageSource()
 
 const START = 'function escapeHtml'
 const END = '// 复制。navigator.clipboard'
