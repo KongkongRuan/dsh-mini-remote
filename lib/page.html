@@ -481,6 +481,16 @@
   /* 聊天模式下 AI 的回答**不套气泡**（用户要求「参考单帧模式那样」）。
      用户自己的指令仍然是气泡，一左一右、一个有框一个没框，正好分得清谁说的。 */
   .said { margin-bottom: 16px; }
+  /* ---------- 「这次回答花了多少 token」（2026-11-27） ----------
+     放在回答正文左上角那一行：小、灰、等宽数字。生成中带 `≈`（按字数估的），落定后
+     换成精确值。用 --muted（和 .reply-foot .time 同一档）——它是读数，不是内容，
+     不该抢正文的注意力。等宽数字让每秒刷新的宽度不跳。 */
+  .tok {
+    display: inline-block; margin-bottom: 4px;
+    font-size: 11.5px; line-height: 1.5; color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .tok[data-est="1"] { opacity: .75; }
   /* ---------- 历史里「你答过的一道题」（2026-11-27） ----------
      答题不产生 user/message，答案落在工具结果里（见 lib/answer.js），所以它既不是
      你说的话、也不是模型答的话，是**第三样东西**：一道题的结论。
@@ -2503,12 +2513,24 @@
      * **流式开关**（2026-10-21，用户要求做成全局切换）：开着时回答正文一个字一个字往外冒，
      * 关着时等整段落定再显示（就是原来的样子）。
      *
-     * 默认**关**：先保住现在的观感，想试的人自己去设置页开。
+     * **2026-11-27 起默认开**：用户实机用了一阵之后拍板「流式改为默认打开」（他那台
+     * 早就手动开了）。只认显式的 `off`——存着 'off' 的照旧关着，没存过（新设备、
+     * 清过缓存）就是开。想关的人去设置页点一下，那次点击会写 'off' 进来。
+     *
      * **单帧模式不跟**（用户拍板）——那一屏就是"只看最终那一句"，流式反而毁掉它。
      * 开关状态存在本机（和主题、字号、声音一样），但它决定的是连上去要不要带 `stream=1`，
      * 所以关掉时服务端连正文帧都不发，是真省流量。
      */
-    streaming: localStorage.getItem('dshMiniStreaming') === 'on',
+    streaming: localStorage.getItem('dshMiniStreaming') !== 'off',
+    /**
+     * **本轮已经花了多少 token**（2026-11-27）：服务端 `usage` 帧原样存着，
+     * `{ sessionId, turn, step, billed, output, total, estimated }`。
+     *
+     * 它只喂「正在流」那一块的徽标（见 paintTokens）；落定后的徽标走历史条目里的
+     * `usage`（服务端和回答一起存下来的那份），两者不是一回事：这个是估算的、会跳，
+     * 那个是精确的、跟着消息走。
+     */
+    usage: null,
     /**
      * **这一轮是不是真的收到过正文增量**（2026-10-22）。
      *
@@ -4003,7 +4025,9 @@
       // 复制按钮则挪到正文**下方、靠左**——原来在上面靠右，手机上拇指够不着，
       // 而且会比正文先入眼。
       var stopped = latest.interrupted ? '<span class="stopped">已停止</span>' : '';
+      // 这一轮花了多少（2026-11-27）：和聊天模式同一个徽标、同一个位置（正文左上角）。
       parts.push((stopped ? '<div class="reply-bar">' + stopped + '</div>' : '')
+        + tokenBadge(latest.usage)
         + '<div class="md">' + mdToHtml(latest.text) + '</div>'
         + '<div class="reply-foot">'
         + '<button class="copy" type="button" aria-label="复制全文" title="复制全文"'
@@ -4071,7 +4095,46 @@
    * 而不是「我的回答怎么没了」。
    */
   function liveBlock(text) {
-    return '<div class="live"><div class="md">' + mdToHtml(text) + '</div></div>';
+    // 徽标在 `.md` **外面**：paintLive() 只换 `.live .md` 的 innerHTML，放里面会被
+    // 每一帧冲掉（见 paintLive 的说明）。
+    return '<div class="live">' + tokenBadge(state.usage)
+      + '<div class="md">' + mdToHtml(text) + '</div></div>';
+  }
+
+  /**
+   * 「这次回答花了多少 token」的小徽标（2026-11-27）。
+   *
+   * 口径是**计费总量**：未缓存输入 + 缓存读 + 缓存写 + 输出（用户 2026-11-27 定的）。
+   * 生成中的那个数字前面带 `≈`——它是按字数估的，落定后会被精确值换掉。
+   *
+   * **自带格式化，不借 saTokens**：这个函数被 page.test.mjs 的切片单独抠出来跑，
+   * 切片里没有 saTokens（它在子智能体那一段），借了就是 ReferenceError。
+   */
+  function tokenBadge(usage) {
+    if (!usage) return '';
+    var total = usage.total;
+    if (typeof total !== 'number' || !isFinite(total) || total <= 0) return '';
+    var est = usage.estimated === true;
+    return '<span class="tok"' + (est ? ' data-est="1"' : '')
+      + ' title="' + tokTitle(usage) + '">'
+      + (est ? '≈' : '') + tokShort(total) + ' tok</span>';
+  }
+
+  /** 紧凑数字：和子智能体那栏同一个口径（—/123/1.2k/3.4M）。 */
+  function tokShort(n) {
+    if (typeof n !== 'number' || !isFinite(n) || n < 0) return '—';
+    if (n < 1000) return String(n);
+    if (n < 1000000) return (n / 1000).toFixed(1) + 'k';
+    return (n / 1000000).toFixed(1) + 'M';
+  }
+
+  /** 悬停（长按）看到的那行字：把总数拆开说清楚，不然只有一个数看不懂。 */
+  function tokTitle(usage) {
+    var parts = ['本轮 ' + tokShort(usage.total) + ' tok（计费总量）'];
+    if (typeof usage.billed === 'number') parts.push('输入 ' + tokShort(usage.billed));
+    if (typeof usage.output === 'number') parts.push('输出 ' + tokShort(usage.output));
+    if (usage.estimated === true) parts.push('生成中，估的');
+    return parts.join(' · ');
   }
 
   /**
@@ -4797,8 +4860,11 @@
     }
     // AI 的回答：**不套气泡**（用户要求「参考单帧模式那样」）。
     // 于是一左一右、一个有框一个没框，正好分得清谁说的。
+    // 徽标放正文**上面、靠左**（2026-11-27 用户要的位置）：`.said` 是块级，第一个
+    // 子节点就是左上角那一行。
     return '<div class="said">'
       + (stopped ? '<div class="reply-bar">' + stopped + '</div>' : '')
+      + tokenBadge(m.usage)
       + '<div class="md">' + mdToHtml(m.text) + '</div>'
       + '<div class="reply-foot">' + copyBtn
       + '<span class="time">' + timeLabel(m.timestamp) + '</span></div></div>';
@@ -5807,6 +5873,36 @@
     md.innerHTML = mdToHtml(state.live || '');
   }
 
+  /**
+   * 只改流式那一块里的 token 徽标（2026-11-27）。
+   *
+   * 和 paintLive 同一条理由：服务端一秒一帧，整串重拼一遍不值得。**只写 textContent**，
+   * 不碰 innerHTML——那块正被 paintLive 用着，两边谁也别重建谁。
+   *
+   * 徽标可能还不存在：流式块先画出来、用量帧后到（重连时就是这样）。这时**补一枚进去**，
+   * 而不是整块重画——重画会把刚流出来的正文和滚动位置一起丢掉。
+   */
+  function paintTokens() {
+    var live = replyEl.querySelector ? replyEl.querySelector('.live') : null;
+    if (!live) return;
+    var u = state.usage;
+    var el = live.querySelector('.tok');
+    if (!u || typeof u.total !== 'number' || !(u.total > 0)) {
+      if (el) el.style.display = 'none';
+      return;
+    }
+    if (!el) {
+      el = document.createElement('span');
+      el.className = 'tok';
+      live.insertBefore(el, live.firstChild);
+    }
+    el.style.display = '';
+    if (u.estimated === true) el.setAttribute('data-est', '1');
+    else el.removeAttribute('data-est');
+    el.textContent = (u.estimated === true ? '≈' : '') + tokShort(u.total) + ' tok';
+    el.title = tokTitle(u);
+  }
+
   function applySnapshot(snap) {
     if (!snap) return;
     if ('latest' in snap) state.latest = snap.latest;
@@ -5856,6 +5952,8 @@
         state.historyFetching = false;
         // 思考是「这个会话这一段回答」的，换了会话立刻作废（同 historyOlder 的理由）。
         state.thinking = null;
+        // 流式那份用量读数同理：它属于上一个会话正在跑的那一轮（2026-11-27）。
+        state.usage = null;
         state.thoughts = Object.create(null);
         // 刚答完那几条结果也属于上一个会话：不过去。留着的话，它会被画到新会话的最后一条
         // 后面——而那道题根本不是在这个会话里问的（同一道题可能在每个会话都长得一样）。
@@ -7147,6 +7245,22 @@
       render();
     });
     /**
+     * 本轮的计费用量（2026-11-27）：`{ sessionId, turn, step, billed, output, total, estimated }`。
+     *
+     * 服务端**一秒最多一帧**（节流在它那边做），`estimated: true` 表示这一步还没跑完、
+     * 数字是按字数估的。落定后这个徽标会被回答自带的精确值换掉（见 reply 那条）。
+     *
+     * 只改徽标那一个节点：这条帧每秒都来，走 render() 等于每秒重拼一遍整串聊天。
+     */
+    es.addEventListener('usage', function (e) {
+      var frame;
+      try { frame = JSON.parse(e.data); } catch (err) { return; }
+      if (!frame) return;
+      if (frame.sessionId && state.boundSessionId && frame.sessionId !== state.boundSessionId) return;
+      state.usage = frame;
+      paintTokens();
+    });
+    /**
      * 聊天模式的过程清单（2026-11-27 v2，只有 `?thought=1` 那条连接会收到）。
      *
      * 两条帧，落到同一列里（见 applyThoughtFrame / applyStepRows）：
@@ -7241,6 +7355,8 @@
       state.latest = {
         text: payload.text, timestamp: payload.timestamp,
         sessionId: payload.sessionId, interrupted: cut,
+        // 这一轮花了多少（2026-11-27）：跟着回答一起存，单帧模式直接画它。
+        usage: payload.usage || null,
       };
       // 完整模式画的也是这串聊天记录（renderFull 复用 renderChat），回复落定
       // 同样要追加进去，否则要等下一份快照才补上；单帧不画记录，照旧不进。
@@ -7249,6 +7365,8 @@
           {
             role: 'assistant', text: payload.text, timestamp: payload.timestamp,
             sessionId: payload.sessionId, interrupted: cut,
+            // 用量跟着这条回答走（2026-11-27）：刷新后从服务端快照回来的那份也带它。
+            usage: payload.usage || null,
             // 完整模式把轨迹块插回对话原位要用：从轨迹中取当前轮号。
             // 手机本地回显时轮还没开，先留空；服务端快照补上来时会带上真轮号。
             turn: currentTrajectoryTurn(),
@@ -7261,6 +7379,8 @@
       state.live = '';
       state.liveTool = null;
       state.streamReceived = false;
+      // 流式那份估的读数到此为止：屏幕上换成了回答自带的精确值（payload.usage）。
+      state.usage = null;
       // 这一轮的过程（思考 + 工具步骤）从此**挂到这条回答上**（2026-11-27 v2）：
       // 之后翻页、重画都跟着它走。**不要求最后一步已 done**——被打断的那一轮也该留住
       // 已经看到的过程，不然屏幕上的清单会凭空消失。

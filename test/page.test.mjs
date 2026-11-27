@@ -2270,11 +2270,16 @@ const ss = html.indexOf(SS)
 const se = html.indexOf(SE)
 assert.ok(ss > 0 && se > ss, `找不到 SSE 那一段的锚点（${SS}）`)
 
-function feedReply(payload, { mode = 'minimal', history = [], live = '', frames = [] } = {}) {
-  const state = { entered: true, mode, history, connected: false, running: true, live, liveTool: null }
+function feedReply(payload, { mode = 'minimal', history = [], live = '', frames = [], usage = null, noReply = false } = {}) {
+  const state = {
+    entered: true, mode, history, connected: false, running: true, live, liveTool: null,
+    // 绑定会话：用量帧要按会话过滤（见 connect 里那条 `usage` 监听）。
+    boundSessionId: 's1',
+  }
   const els = {}
   let source = null
   let paints = 0
+  let tokenPaints = 0
   class FakeEventSource {
     constructor(url) { this.url = url; this._on = {}; source = this }
     addEventListener(type, fn) { (this._on[type] || (this._on[type] = [])).push(fn) }
@@ -2286,7 +2291,7 @@ function feedReply(payload, { mode = 'minimal', history = [], live = '', frames 
   const build = new Function(
     'state', 'EventSource', 'document', 'encodeURIComponent', '$',
     'setStatus', 'showGate', 'updateStatusUI', 'applySnapshot', 'render',
-    'setRunning', 'playDing', 'buzz', 'paintLive',
+    'setRunning', 'playDing', 'buzz', 'paintLive', 'paintTokens',
     `${html.slice(ss, se)}\nreturn connect;`,
   )
   build(
@@ -2302,10 +2307,13 @@ function feedReply(payload, { mode = 'minimal', history = [], live = '', frames 
     () => {}, () => {}, () => {}, () => {}, () => {},
     (v) => { calls.push(v); state.running = v }, () => {}, () => {},
     () => { paints += 1 },
+    () => { tokenPaints += 1 },
   )()
   for (const frame of frames) source.fire('trajectory-live', frame)
-  source.fire('reply', payload)
-  return { state, calls, paints }
+  // 用量帧排在 reply 前面：真机上它每秒都来，落定那一下由 reply 收场。
+  if (usage) source.fire('usage', usage)
+  if (!noReply) source.fire('reply', payload)
+  return { state, calls, paints, tokenPaints }
 }
 
 test('SSE 实时推来的回复也要带上 interrupted（不能只有刷新才有）', () => {
@@ -6678,4 +6686,87 @@ test('镜像横条：触摸设备也要能收起，但收起后必须留一条�
   assert.match(html, /barHasHover/, '要按设备能力分两套事件')
   assert.match(html, /addEventListener\('click', function \(\) \{\s*if \(\$\('mirrorView'\)\.classList\.contains\('bar-on'\)\)/,
     '触摸设备走"点一下切换"：已经开着就收起来，否则拉出来')
+})
+
+
+// ---------------------------------------------------------------------------
+// 回答左上角那一行「这次花了多少 token」（2026-11-27）
+// ---------------------------------------------------------------------------
+// 口径是**计费总量**：未缓存输入 + 缓存读 + 缓存写 + 输出（用户 2026-11-27 定的）。
+// 生成中的数字是估的（前面带 ≈），落定后换成服务端存下来的精确值。
+
+test('回答左上角：这一轮花了多少 token 画在正文前面', () => {
+  const out = renderChatWith({
+    running: false,
+    history: [
+      { role: 'user', text: '看看日志', timestamp: 1 },
+      { role: 'assistant', text: '看完了。', timestamp: 2, usage: { billed: 41000, output: 500, total: 41500 } },
+    ],
+  })
+  const badge = out.indexOf('class="tok"')
+  const body = out.indexOf('看完了。')
+  assert.ok(badge > 0, '徽标得画出来')
+  assert.ok(badge < body, '要在正文**前面**（左上角），不是在下面')
+  assert.match(out, /41\.5k tok/, '按计费总量显示，紧凑到 k')
+  assert.ok(out.indexOf('≈') < 0, '落定的数是精确的，不带约等号')
+})
+
+test('生成中的徽标带约等号：那是估的，别让人当成准数', () => {
+  const out = renderChatWith({
+    running: true,
+    history: [{ role: 'user', text: '看看', timestamp: 1 }],
+    live: '正在写的正文',
+    usage: { billed: 0, output: 120, total: 120, estimated: true },
+  })
+  assert.match(out, /≈120 tok/, '估的要标出来')
+  assert.match(out, /data-est="1"/, '标记也要有，样式靠它调淡')
+})
+
+test('没有用量就不画徽标（老服务端 / 这一步没报数）', () => {
+  const out = renderChatWith({
+    running: false,
+    history: [{ role: 'assistant', text: '看完了。', timestamp: 2 }],
+  })
+  assert.ok(!out.includes('class="tok"'), '没有数字就别留一个空框在那儿')
+})
+
+test('单帧模式：同一个徽标、同一个位置（正文左上角）', () => {
+  const out = renderMinimalWith({
+    running: false,
+    latest: { text: '这次的答案', usage: { billed: 900, output: 50, total: 950 } },
+  })
+  const badge = out.indexOf('class="tok"')
+  const body = out.indexOf('这次的答案')
+  assert.ok(badge > 0 && badge < body, '徽标要在正文前面')
+  assert.match(out, /950 tok/, '不到 1k 就写整数')
+})
+
+test('用量帧：存进 state、只刷徽标，不重拼整串聊天', () => {
+  // 这条帧每秒都来。走 render() 等于每秒重拼一遍整串历史（2026-10-22 那条
+  // 「流式只重画一块」的教训）。
+  const r = feedReply({}, {
+    mode: 'chat', noReply: true,
+    usage: { sessionId: 's1', total: 1200, billed: 1000, output: 200, estimated: true },
+  })
+  assert.equal(r.tokenPaints, 1, '收到用量帧要交给 paintTokens')
+  assert.equal(r.paints, 0, '不许为了一条读数重拼整串聊天')
+  assert.equal(r.state.usage.total, 1200, '帧要原样存进 state')
+})
+
+test('用量帧：换了会话就不收（别把上一个会话的数画到这一条上）', () => {
+  const r = feedReply({}, {
+    mode: 'chat', noReply: true,
+    usage: { sessionId: 's9', total: 999 },
+  })
+  assert.equal(r.state.usage, undefined, '别的会话的用量帧要丢掉')
+  assert.equal(r.tokenPaints, 0, '丢掉就别画')
+})
+
+test('落定之后，流式那份估的读数作废（精确值由回答自带）', () => {
+  const r = feedReply(
+    { text: '回答', sessionId: 's1', timestamp: 5, usage: { billed: 1000, output: 200, total: 1200 } },
+    { mode: 'chat', usage: { sessionId: 's1', total: 900, estimated: true } },
+  )
+  assert.equal(r.state.usage, null, 'reply 一到，流式读数就得清掉')
+  assert.equal(r.state.latest.usage.total, 1200, '精确值跟着回答走')
 })

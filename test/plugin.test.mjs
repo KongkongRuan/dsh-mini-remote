@@ -784,9 +784,12 @@ async function bootStreaming(t) {
     p,
     agent,
     stream,
-    start: () => stream({ agent, frame: { type: 'start' } }),
+    start: (frame = {}) => stream({ agent, frame: { type: 'start', ...frame } }),
     delta: (text) => stream({ agent, frame: { type: 'chunk', chunk: { type: 'text-delta', text } } }),
     toolCall: () => stream({ agent, frame: { type: 'chunk', chunk: { type: 'tool-call-delta' } } }),
+    // 一步的用量（2026-11-27）：真实适配器在 `finish` **之前**发这一帧，
+    // 一个模型调用只报一次（见 dsh-llm 的 StreamChunk 契约）。
+    usageChunk: (usage) => stream({ agent, frame: { type: 'chunk', chunk: { type: 'usage', usage } } }),
     end: () => stream({ agent, frame: { type: 'end' } }),
   }
 }
@@ -823,6 +826,97 @@ test('流式关着：中途一个字都不往手机上推，连超长旁白也�
   s.stream({ agent: sub, frame: { type: 'chunk', chunk: { type: 'text-delta', text: '子 Agent 在干活' } } })
   assert.equal((await snapOf(s.p)).live, '', '子 Agent 的流更不该过来')
 })
+
+// ---------------------------------------------------------------------------
+// 本轮计费用量（2026-11-27）：回答左上角那个「N tok」
+// ---------------------------------------------------------------------------
+
+/** 开一条 SSE 连接，按帧名读到为止。用量帧是广播给所有连接的，不带任何订阅参数。 */
+async function openFrames(p) {
+  const res = await fetch(`${p.base}/mini/api/stream?token=${p.token}`)
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  return {
+    async readUntil(name, timeoutMs = 5000) {
+      const deadline = Date.now() + timeoutMs
+      while (!buffer.includes('event: ' + name)) {
+        if (Date.now() > deadline) throw new Error(`等不到 ${name} 帧`)
+        const { value, done } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+      }
+      const match = new RegExp('event: ' + name + '\\ndata: ([^\\n]+)').exec(buffer)
+      if (match) buffer = buffer.slice(match.index + match[0].length)
+      return match ? JSON.parse(match[1]) : null
+    },
+    async close() { try { await reader.cancel() } catch { /* 已经断了 */ } },
+  }
+}
+
+test('计费用量：跑着的时候按字数估、一秒一帧，报数后当场变精确', async (t) => {
+  // 用户 2026-11-27 要的「回答左上角实时显示这次花了多少 token」，口径是**计费总量**
+  // （未缓存输入 + 缓存读 + 缓存写 + 输出）。
+  //
+  // 数字由两段拼起来：跑完的步有提供方报的精确值，正在跑的那一步只能按字数估。
+  // 这条盯的就是「拼」——少任何一半，屏幕上的数都是错的。
+  const s = await bootStreaming(t)
+  const frames = await openFrames(s.p)
+  t.after(frames.close)
+  await frames.readUntil('state')
+
+  // 一步还没报数：输入没得估（0），输出按收到的字估。
+  s.delta('这是一段正在写的正文。')
+  const guess = await frames.readUntil('usage')
+  assert.equal(guess.estimated, true, '这一步还没跑完，得标成估的')
+  assert.equal(guess.billed, 0, '还没有任何一步报过数，输入没得估')
+  assert.ok(guess.output > 0, `按字数估出来的输出要大于 0（实际 ${guess.output}）`)
+  assert.equal(guess.sessionId, 'sess-stream', '帧要带上是哪个会话')
+
+  // 一步跑完：三块输入桶互不重叠，加起来才是这次请求的账。
+  s.usageChunk({ inputTokens: 1000, cacheReadTokens: 40000, cacheWriteTokens: 2000, outputTokens: 50 })
+  const exact = await frames.readUntil('usage')
+  assert.equal(exact.billed, 43000, '1000 + 40000 + 2000')
+  assert.equal(exact.output, 50)
+  assert.equal(exact.total, 43050)
+  assert.equal(exact.estimated, false, '这一步报过数了，不该再标成估的')
+})
+
+test('计费用量：落定后跟着回复走，刷新/翻页也是同一个数', async (t) => {
+  // 流式那份是进程本地的，刷新就没了（DSH 的 assistant-stream 不重放）。
+  // 所以落定那条必须把总数**存进会话记录**——手机上翻历史、重开页面都靠它。
+  //
+  // 中间步骤（带工具调用的那几步）同样计费，漏掉它们的话，一轮里最贵的那十次
+  // 工具调用就全不算了。
+  const s = await bootStreaming(t)
+  const step1 = { inputTokens: 900, cacheReadTokens: 100 }
+  const step2 = { inputTokens: 1000, cacheReadTokens: 40000, cacheWriteTokens: 2000, outputTokens: 50 }
+
+  const feed = s.p.handlers.get('session/event')
+  feed(s.agent.session, ev('turn/start', { turn: 1 }))
+  feed(s.agent.session, ev('assistant/message', {
+    turn: 1, step: 1, usage: step1,
+    message: {
+      content: [
+        { type: 'text', text: '我先看看这个文件。' },
+        { type: 'tool-call', id: 'call-1', name: 'bash', arguments: '{}' },
+      ],
+    },
+  }))
+  feed(s.agent.session, ev('assistant/message', {
+    turn: 1, step: 2, usage: step2, message: { content: text('看完了，没问题。') },
+  }))
+  feed(s.agent.session, ev('turn/end', { turn: 1, reason: { kind: 'completed' } }))
+
+  const snap = await snapOf(s.p)
+  // 900+100 + 1000+40000+2000 = 44000；输出 50
+  assert.equal(snap.latest.usage.total, 44050, '计费总量 = 两步的输入桶 + 输出')
+  assert.equal(snap.latest.usage.steps, 2, '中间那一步也要算进去')
+  const last = snap.history.at(-1)
+  assert.equal(last.role, 'assistant')
+  assert.equal(last.usage.total, 44050, '聊天/完整模式那条也要带同一个数')
+})
+
 
 test('手机发出去的指令只记一笔（注入后事件流还会回来一趟）', async (t) => {
   // 用户实机报的：「聊天模式下，发送指令会显示两次」。
