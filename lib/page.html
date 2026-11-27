@@ -4390,6 +4390,85 @@
       + '</div>';
   }
 
+  // ——— 「刚答完的那道题，选了些什么」（2026-11-27 晚）———
+  //
+  // 收摊那一下手机上必须**立刻**看见两件事：卡片没了、你选了什么。卡片靠收到的帧关
+  // （见 closeAskCard）；「选了什么」原本只能等工具结果落定后再推一份 history
+  // （最长 60 秒），用户答完盯着空白等一分钟，跟没做这个功能差不多。
+  // 所以收摊时就把结果记在这里，直接画成一条 chip（和 history 里那条同一个 answerBlock）。
+  // **服务端那条一到它就退场**：判据是答案本身（answerInHistory），不建表、不做 id 映射。
+  var localAnswers = [];          // [{ qid, items, source, at }]
+  var LOCAL_ANSWER_KEEP = 5;      // 只留最近几条：这是「刚答完」的临时显示，不是第二份历史
+
+  /** 一份答案的身份：每题选中项 + 自己写的那句（用于和 history 里那条比对）。 */
+  function answerSig(items) {
+    var parts = [];
+    for (var i = 0; i < (items || []).length; i++) {
+      var it = items[i] || {};
+      parts.push((Array.isArray(it.selected) ? it.selected.join('\u0001') : '') + '\u0002' + (it.custom || ''));
+    }
+    return parts.join('\u0003');
+  }
+
+  /** 这条答案已经在服务端那份 history 里了吗（到了就不画本地那条）。 */
+  function answerInHistory(items) {
+    var want = answerSig(items);
+    if (!want) return true;
+    var list = state.history || [];
+    for (var i = list.length - 1; i >= 0; i--) {
+      if (list[i] && list[i].role === 'answer' && answerSig(list[i].items) === want) return true;
+    }
+    return false;
+  }
+
+  /** 手机自己勾的那份 → chip 的形状（和 lib/answer.js 的 answerItems 必须一模一样）。 */
+  function askItems(one) {
+    var out = [];
+    var qs = (one && one.questions) || [];
+    for (var i = 0; i < qs.length; i++) {
+      var q = qs[i] || {};
+      var picked = (one.picked && one.picked[i]) || {};
+      var sel = Array.isArray(picked.selected) ? picked.selected.slice() : [];
+      var custom = (picked.custom || '').trim();
+      if (!sel.length && !custom) continue;
+      out.push({ id: q.id || '', header: q.header || '', title: q.question || '', selected: sel, custom: custom });
+    }
+    return out;
+  }
+
+  /** 「你选了：A、B；你写了：…」（和 chip 同一套文案）。 */
+  function answerLine(items) {
+    var parts = [];
+    for (var i = 0; i < (items || []).length; i++) {
+      var it = items[i] || {};
+      var picked = Array.isArray(it.selected) ? it.selected : [];
+      var custom = (it.custom || '').trim();
+      var what = picked.length ? '你选了：' + picked.join('、') : '';
+      if (custom) what = what ? what + '；你写了：' + custom : '你写了：' + custom;
+      if (what) parts.push(what);
+    }
+    return parts.join('；');
+  }
+
+  /** 记一条刚答完的结果并重画；没有可显示的选择就不记——**不编**一句「你选了」。 */
+  function rememberAnswer(qid, items, source) {
+    if (!answerSig(items)) return;
+    localAnswers.push({ qid: qid || '', items: items, source: source || '', at: Date.now() });
+    while (localAnswers.length > LOCAL_ANSWER_KEEP) localAnswers.shift();
+    render();   // 总分发：单帧模式那边没有聊天记录，render() 自己落到 renderMinimal
+  }
+
+  /** 收卡之后说一句：谁答的（服务端如实说，猜不得）+ 选了什么。 */
+  function saySettled(source, items) {
+    var line = answerLine(items);
+    var who = source === 'pc' ? '电脑上答的' : (source === 'feishu' ? '飞书上答的' : '');
+    if (line) return toast(who ? who + '：' + line : line);
+    if (source === 'pc') toast('这道题已经在电脑上答过了');
+    else if (source === 'feishu') toast('这道题已经在飞书里答过了');
+    else if (source === 'stop') toast('这一轮被你停掉了，这道题不用再答');
+    else toast('这道题已经不在等你答了');
+  }
+
   /**
    * 「这一轮的过程」：思考 + 工具步骤（2026-11-27 v2，聊天模式）。
    *
@@ -4770,6 +4849,20 @@
     chatHiddenTurns = countTurns(keys, older);
     var all = list;
     if (older) list = list.slice(older);
+    // **刚答完的那道题**（见 rememberAnswer）：接在最后一条后面。
+    //
+    // 为什么放在切窗之后：它不属于任何一轮（服务端那份 history 里还没有它），
+    // 也不该参与「还有几轮」的计数——它只是「刚刚发生的一件事」，永远在最底下。
+    // 服务端那条真 chip 一到（history 里出现同样的选择），这里就自动不再画（见 answerInHistory）。
+    if (localAnswers.length) {
+      for (var la = 0; la < localAnswers.length; la++) {
+        var one = localAnswers[la];
+        if (answerInHistory(one.items)) continue;
+        list = list.concat([{
+          role: 'answer', items: one.items, timestamp: one.at, turn: null, local: true,
+        }]);
+      }
+    }
     // 「上面还有，往上滑」要贴在**看得到的顶上**，而且**离顶远了就收起来**——
     // 两处讲究见 .more-note 的样式注释。露 / 收在这里先按当前位置定一次，
     // 之后由滚动里的 paintChatNote 接着跟。
@@ -5731,6 +5824,9 @@
         // 思考是「这个会话这一段回答」的，换了会话立刻作废（同 historyOlder 的理由）。
         state.thinking = null;
         state.thoughts = Object.create(null);
+        // 刚答完那几条结果也属于上一个会话：不过去。留着的话，它会被画到新会话的最后一条
+        // 后面——而那道题根本不是在这个会话里问的（同一道题可能在每个会话都长得一样）。
+        localAnswers = [];
         // 展开状态是按步骤 key 记的，换会话后 key 可能撞上（步号从 1 重数），一起清掉。
         thoughtGroupOpen = false;
         thoughtStepOpen = {};
@@ -7272,6 +7368,8 @@
         return
       }
       // 最后一题答完：把所有题的答案一起交回去。
+      const askId = ask.id
+      const items = askItems(ask)
       const answers = ask.questions.map(function (q, k) {
         const one = ask.picked[k] || { selected: [], custom: '' }
         const answer = { id: q.id, selected: one.selected.slice() }
@@ -7286,6 +7384,11 @@
           return
         }
         closeAskCard()
+        // 自己答的也要**立刻看见「你选了 X」**（2026-11-27 晚）：服务端那条 chip 要等
+        // 工具结果落定才推过来，而这一下用户正盯着屏幕。本地这条会和服务端那条合流
+        // （判据是答案本身，见 answerInHistory），不会变成两条。
+        // **`late` 不记**：那道题已经在别处被答掉了，我勾的这份没算数，画出来就是骗人。
+        if (verdict === 'ok') rememberAnswer(askId, items, 'phone')
         if (verdict === 'late') toast('这道题已经交回电脑了，去电脑上答')
       })
     })
@@ -7402,25 +7505,65 @@
     // 心跳（服务端每 10 秒一帧）：**没有任何逻辑**，只为了让上面那层 stampFrames 记下一笔
     // 「这条流还活着」。少了它，空闲时 lastFrameAt 会一直变老，轮询兜底就会白开。
     es.addEventListener('tick', function () {});
-    // 这道题在**别处**被答掉了（飞书那边回的），插件主动推一条状态过来。
+    // 这道题在**别处**被答掉了（电脑上、飞书上），插件主动推一条状态过来。
     //
     // 没有这一条，卡片就干巴巴挂在屏幕上：用户在飞书里答完了，切回手机还看得见这道题，
     // 只能以为没生效、再答一次——那时候拿到的是「已经过期了」。所以这里就地收起来，
     // 并说一句它是怎么没的。**只在自己正显示着同一道题时动手**，别的题（编号对不上）
     // 一个字都不碰。
+    //
+    // 2026-11-27 晚：这条帧现在**带着答案**（`items`）。用户的要求是「选择后关闭卡片
+    // 并显示选择了什么」，所以收卡的同时把「你选了 A、B」也画出来——一条立在聊天流里的
+    // chip（见 rememberAnswer），外加一句 1.8 秒的即时提示（见 saySettled）。
     es.addEventListener('question-done', function (e) {
       let payload = null
       try { payload = JSON.parse(e.data) } catch (err) { return }
       if (!payload || !payload.id) return
       if (!ask || ask.id !== payload.id) return
+      const id = ask.id
       closeAskCard()
-      // 谁答的由插件如实说（'feishu' / 'pc'）——猜不得，也不把「超时/断线」说成「已在别处答过」。
-      if (payload.source === 'feishu') toast('这道题已经在飞书里答过了')
-      // 电脑上先答的：插件现在把题**同时**推给手机和电脑，谁先答谁生效（见 lib/index.js
-      // 的提问链）。手机上这张卡是被别处的答案收掉的，得说一句它是怎么没的，
-      // 否则用户只会以为「卡片自己消失了」。
-      else if (payload.source === 'pc') toast('这道题已经在电脑上答过了')
+      rememberAnswer(id, payload.items, payload.source)
+      saySettled(payload.source, payload.items)
     });
+    // 连上来时服务端补一份「题目现在的样子」：还在等哪些、刚收掉了哪几道（含结果）。
+    //
+    // 为什么需要它：上面那条 `question-done` 是**一次性**的。手机锁屏 / 切后台 / 换网络时
+    // SSE 会断，而「电脑上答完了」那一下正好落在断线期间，那条帧就永远收不到，页面上这张卡
+    // 会一直挂着（2026-11-27 用户实测）。这条每次连上都给一份，页面拿它对一次账。
+    es.addEventListener('question-state', function (e) {
+      let payload = null
+      try { payload = JSON.parse(e.data) } catch (err) { return }
+      reconcileAsk(payload)
+    });
+    /**
+     * 用「服务端现在还挂着哪些题 / 刚收掉了哪几道」对一次账。
+     *
+     * 判据只有一条：**我手上这张卡，服务端还在等它吗**。还在等就一个字都不动（用户可能
+     * 正勾着选项）；已经不在了就收掉，能从 `settled` 里认出结果就把「你选了 X」补出来。
+     * 别的题（编号对不上）一律不碰。
+     */
+    function reconcileAsk(payload) {
+      if (!ask || !payload) return
+      const pending = Array.isArray(payload.pending) ? payload.pending : []
+      for (let i = 0; i < pending.length; i++) {
+        if (pending[i] && pending[i].id === ask.id) return
+      }
+      let settled = null
+      const all = Array.isArray(payload.settled) ? payload.settled : []
+      for (let j = all.length - 1; j >= 0; j--) {
+        const one = all[j]
+        if (one && one.kind === 'question' && one.id === ask.id) { settled = one; break }
+      }
+      const id = ask.id
+      closeAskCard()
+      if (settled) {
+        rememberAnswer(id, settled.items, settled.source)
+        saySettled(settled.source, settled.items)
+      } else {
+        // 认不出这道题去哪了（超出那 10 分钟的对账窗口）：只说"不在等你了"，不编结果。
+        saySettled('', null)
+      }
+    }
     es.addEventListener('approval-done', function (e) {
       let payload = null
       try { payload = JSON.parse(e.data) } catch (err) { return }
@@ -7460,10 +7603,10 @@
       api('/mini/api/ping').then(function (p) {
         if (!p || p.ok !== true) return;
         var list = Array.isArray(p.pending) ? p.pending : [];
-        // ① 卡片已经不作数了：收起来
+        // ① 卡片已经不作数了：收起来——**顺带把「你选了什么」补出来**（见 reconcileAsk：
+        //    服务端在这份 ping 里带着刚收摊的那几条结果，正是为了补这个）。
         if (ask && !list.some(function (x) { return x && x.id === ask.id; })) {
-          closeAskCard();
-          toast('这道题已经不在等你答了');
+          reconcileAsk(p);
         }
         // ② 有题在等、手机上却没显示：补出卡片
         if (!ask) {

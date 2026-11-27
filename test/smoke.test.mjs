@@ -1996,7 +1996,8 @@ test('别处答掉了：审批也一样，而且同一道题只通知一次', as
   const buffer = await stream.read('event: approval-done')
   const times = buffer.split('event: approval-done').length - 1
   assert.equal(times, 1, '同一道题对同一侧只提示一次')
-  assert.deepEqual(frameOf(buffer, 'approval-done'), { id: 'a1', source: 'feishu' })
+  assert.deepEqual(frameOf(buffer, 'approval-done'), { id: 'a1', source: 'feishu', decision: 'allowed-once' },
+    '结论跟着这条帧一起走：将来要回显「你允许了」不必再改协议')
   await stream.close()
 })
 
@@ -2017,6 +2018,102 @@ test('手机自己答的：帧里说的是 phone，不是 feishu', async (t) => 
   assert.deepEqual(frameOf(buffer, 'question-done'), { id: 'q1', source: 'phone' },
     '手机自己答的要说 phone——不然手机页会对自己说「已在飞书答过」')
   await stream.close()
+})
+
+// ---------------------------------------------------------------------------
+// 「选择后关掉卡片，并且显示选择了什么」（2026-11-27 晚，用户实测提出）
+//
+// 原来这条帧只说「哪一道、谁答的」：卡片是收掉了，可用户看不到自己选了什么。
+// 下面是三件事各钉一条：
+//   ① 电脑上答的 → 帧里必须带着电脑选的那几项（否则手机只能干说一句「电脑上答过了」）；
+//   ② 手机上答的 → 帧里也带（两边拼出来的形状必须一样，界面上不能一个有一个没有）；
+//   ③ 断线期间答完 → 连上来时的 `question-state` 里要有这条结果（那条一次性帧已经错过了）。
+// ---------------------------------------------------------------------------
+
+test('电脑上答完：question-done 里带着电脑选了什么', async (t) => {
+  const { server, base, token } = await startTestServer()
+  t.after(() => server.close())
+
+  const questions = [{ id: 'which', header: '确认对象', question: '你忘的是哪一种密码？' }]
+  const pending = server.askPhone(questions, 'sess-1', { onPending: () => {} })
+  const stream = await openStream(base, token)
+  // 电脑上那一票：答案是插件那一层拿到的（`won.answer`），**从来不过 server 这道门**，
+  // 所以得由调用方用 `result` 递进来——这就是这条用例要钉的形状。
+  assert.deepEqual(miniControl.answerQuestion('q1', {
+    cancel: true,
+    result: { items: [{ id: 'which', header: '确认对象', title: '你忘的是哪一种密码？', selected: ['B'], custom: '' }] },
+  }, 'pc'), { ok: true })
+  assert.equal(await pending, null, '电脑答的那一下，手机这条路是「没人答」（null）')
+
+  const frame = frameOf(await stream.read('event: question-done'), 'question-done')
+  assert.equal(frame.source, 'pc')
+  assert.deepEqual(frame.items,
+    [{ id: 'which', header: '确认对象', title: '你忘的是哪一种密码？', selected: ['B'], custom: '' }],
+    '电脑上选了什么要一起带过去——手机页靠它画「你选了 B」')
+  await stream.close()
+})
+
+test('手机上答完：question-done 里也带着选了哪些（和电脑那条同一个形状）', async (t) => {
+  const { server, base, token } = await startTestServer()
+  t.after(() => server.close())
+
+  const questions = [{ id: 'which', header: '确认对象', question: '你忘的是哪一种密码？' }]
+  const pending = server.askPhone(questions, 'sess-1', { onPending: () => {} })
+  const stream = await openStream(base, token)
+  const res = await fetch(`${base}/mini/api/answer?token=${token}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: 'q1', answers: [{ id: 'which', selected: ['aTrust 登录的账号密码'] }] }),
+  })
+  assert.equal(res.status, 200)
+  await pending
+
+  const frame = frameOf(await stream.read('event: question-done'), 'question-done')
+  assert.equal(frame.source, 'phone')
+  assert.deepEqual(frame.items,
+    [{ id: 'which', header: '确认对象', title: '你忘的是哪一种密码？', selected: ['aTrust 登录的账号密码'], custom: '' }],
+    '手机答的那份要自己拼成同一形状（题目正文从 askPhone 拿到的那份里取）')
+  await stream.close()
+})
+
+test('断线那一下答完了：连回来时 question-state 带着刚收掉的那条结果', async (t) => {
+  const { server, base, token } = await startTestServer()
+  t.after(() => server.close())
+
+  const questions = [{ id: 'which', header: '确认对象', question: '你忘的是哪一种密码？' }]
+  const pending = server.askPhone(questions, 'sess-1', { onPending: () => {} })
+  // 手机此刻没连着（锁屏）：这一次答完的 `question-done` 它永远收不到——
+  // 这正是用户实测「电脑选完，手机卡片还挂着」的那条路。
+  miniControl.answerQuestion('q1', { answers: [{ id: 'which', selected: ['A'] }] }, 'phone')
+  await pending
+
+  // 醒了，连上来：先收到的是一条现状，里面既有「还在等哪些」，也有「刚收掉了哪几道 + 结果」。
+  const stream = await openStream(base, token)
+  const frame = frameOf(await stream.read('event: question-state'), 'question-state')
+  assert.deepEqual(frame.pending, [], '题已经收摊，不能再挂在那儿')
+  assert.equal(frame.settled.length, 1, '刚收掉的那条要留着，页面靠它对掉手里的卡片')
+  assert.equal(frame.settled[0].id, 'q1')
+  assert.equal(frame.settled[0].kind, 'question')
+  assert.equal(frame.settled[0].source, 'phone')
+  assert.deepEqual(frame.settled[0].items,
+    [{ id: 'which', header: '确认对象', title: '你忘的是哪一种密码？', selected: ['A'], custom: '' }],
+    '结果要一起带上——只报「题没了」的话，用户还是看不到自己选了什么')
+  await stream.close()
+})
+
+test('轮询兜底也拿得到结果：ping 里带 settled', async (t) => {
+  const { server, base, token } = await startTestServer()
+  t.after(() => server.close())
+
+  const pending = server.askPhone([{ id: 'q1', question: '选哪个方案？' }], 'sess-1', { onPending: () => {} })
+  miniControl.answerQuestion('q1', { answers: [{ id: 'q1', selected: ['B'] }] }, 'phone')
+  await pending
+
+  const p = await (await fetch(`${base}/mini/api/ping?token=${token}`)).json()
+  assert.equal(p.ok, true)
+  assert.deepEqual(p.pending, [], '没有还在等的题了')
+  assert.equal(p.settled.length, 1)
+  assert.deepEqual(p.settled[0].items, [{ id: 'q1', header: '', title: '选哪个方案？', selected: ['B'], custom: '' }])
 })
 
 test('未带 token 打开页面时给的是填 token 的入口页，而不是内容页', async (t) => {

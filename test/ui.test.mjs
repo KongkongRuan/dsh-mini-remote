@@ -202,13 +202,34 @@ test('别处答掉了：两条监听只换状态，不碰位置/内容', () => {
   assert.match(c, /paddingBottom = ''/, '补给抽屉的底部内边距要还回去')
 })
 
-test('别处答掉了：只有飞书答的才说「已在飞书答过」，超时/断线不冒充', () => {
-  // 来源由插件如实说（notifySettled 只带 'phone' / 'feishu'，超时是空串）。
+test('别处答掉了：说清谁答的、选了些什么，超时/断线不冒充', () => {
+  // 来源由插件如实说（`notifySettled` 带 'phone' / 'pc' / 'feishu'，收摊是空串）。
   // 页面据此挑话——猜不得，更不能把「没人答、收摊了」说成「已在飞书答过」。
-  const from = html.indexOf("es.addEventListener('question-done'")
-  const body = html.slice(from, html.indexOf('});', from))
-  assert.match(body, /payload\.source === 'feishu'/, '要按来源分话')
-  assert.match(body, /已经在飞书里答过了/)
+  const qFrom = html.indexOf("es.addEventListener('question-done'")
+  const q = html.slice(qFrom, html.indexOf('});', qFrom))
+  assert.match(q, /rememberAnswer\(/, '收卡之后要把「你选了什么」记下来（聊天流里那条 chip）')
+  assert.match(q, /saySettled\(/, '还要说一句谁答的、选了些什么')
+
+  // 三种来源三种说法，都在 saySettled 里，别散回各处。
+  const sFrom = html.indexOf('function saySettled')
+  assert.ok(sFrom > 0, '页面里找不到 saySettled')
+  const s = html.slice(sFrom, html.indexOf('\n  }', sFrom))
+  assert.match(s, /source === 'pc'/, '电脑上答的要单独一句')
+  assert.match(s, /source === 'feishu'/, '飞书上答的要单独一句')
+  assert.match(s, /电脑上答的/, '文案里要明说是在电脑上答的')
+  assert.match(s, /已经在飞书里答过了/)
+  assert.match(s, /answerLine\(/, '有结果就报结果（「你选了 A、B」），不能只说一句「答过了」')
+
+  // 断线那一下错过了那条一次性帧：重连时的 question-state 要对账（见 reconcileAsk）。
+  assert.ok(html.includes("es.addEventListener('question-state'"), '页面里找不到 question-state 这条对账帧')
+  const rFrom = html.indexOf('function reconcileAsk')
+  assert.ok(rFrom > 0, '页面里找不到 reconcileAsk')
+  const r = html.slice(rFrom, html.indexOf('\n    }', rFrom))
+  assert.match(r, /closeAskCard\(\)/, '对账发现这题已经不在等了，同样要走 closeAskCard()')
+  assert.match(r, /payload\.pending/, '判据是「服务端还在等它吗」')
+  assert.match(r, /settled/, '收掉之后从 settled 里把结果取出来补显示')
+  assert.ok(!/\.style\b/.test(r), '对账里也不许就地改样式')
+
   const aFrom = html.indexOf("es.addEventListener('approval-done'")
   const aBody = html.slice(aFrom, html.indexOf('});', aFrom))
   assert.match(aBody, /payload\.source === 'feishu'/)
