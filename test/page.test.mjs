@@ -921,7 +921,10 @@ test('气泡贴着自己的词条，多长就多宽', () => {
   // 上一版是定宽的（min-width: min(180px, …)），短词条右边会空一大块。
   assert.ok(!/min-width/.test(css), '不该再给气泡定宽——它要自己贴住文字')
   assert.match(css, /flex:\s*0 1 auto/, '不撑满整行，也不许被撑大')
-  assert.match(css, /max-width:\s*calc\(100% - 128px\)/, '窄屏退路：立绘 122 + 间隙 6')
+  // 2026-11-27 晚：宽度再封一道 72%——原来只按「立绘 + 间隙」算，一句长旁白就能铺满
+  // 整行，看着像一条右对齐的消息（用户实机把鲸鱼娘的旁白当成 AI 正文了）。
+  assert.match(css, /max-width:\s*min\(calc\(100% - 128px\), 72%\)/, '窄屏退路 + 不超过 72%')
+  assert.match(css, /border:\s*1px dashed/, '虚线边框：和「人发的话」分开（那是实线）')
   assert.match(css, /align-self:\s*flex-start/, '气泡要抬到头部高度，别对着身子中间')
 })
 
@@ -934,7 +937,11 @@ test('立绘站哪儿由行宽决定，跟气泡宽窄无关', () => {
   // 这行会一直撑到屏幕外，手机上得横着划才看得见（2026-09-27 用户截图报的）。
   // 气泡那条 `max-width: calc(100% - 128px)` 里的 100% 又是拿这一行自己算的，管不住它。
   assert.match(row, /max-width:\s*100%/, '行宽必须有上限：再长的词条也不能把这行顶出屏幕')
-  assert.match(row, /margin:\s*0 auto/, '这一行要居中')
+  // 2026-11-27 晚：**改成贴左**。居中时一句长旁白会把整行撑满、气泡落在屏幕中间偏右，
+  // 用户当成「AI 正文跑到右边」；贴左之后立绘和气泡永远从同一条左边线起。
+  assert.match(row, /margin:\s*0;/, '这一行贴左（立绘和气泡同一条左边线）')
+  // 只看声明（带分号），别把上面那段解释性的注释也当成样式。
+  assert.ok(!/margin:\s*0\s+auto\s*;/.test(row), '不许再居中')
   // 这条是坑：行宽固定之后**又**在行内 justify-content:center，等于把这一组
   // 重新居中一次，立绘照样被气泡推着走——白忙一场。
   assert.ok(!/justify-content/.test(row), '行内不能再居中，否则立绘又被气泡推着走')

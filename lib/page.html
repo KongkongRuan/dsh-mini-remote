@@ -621,7 +621,10 @@
   .work-top {
     display: flex; align-items: flex-start; gap: 6px;
     width: max-content; min-width: min(299px, 100%); max-width: 100%;
-    margin: 0 auto;
+    /* **贴左**（2026-11-27 晚）：原来是居中（`margin: 0 auto`），一句长旁白会把整行撑满、
+       气泡落在屏幕中间偏右，看着就像一条右对齐的消息（用户实机误认成「AI 正文跑到右边」）。
+       贴左之后，立绘和气泡永远从同一条左边线起，长短只影响宽度。 */
+    margin: 0;
   }
 
   /* 立绘：每个姿势是一张「并排若干帧」的雪碧图（每帧 380×330），靠 background-position
@@ -683,9 +686,12 @@
      `align-self: flex-start` 让气泡顶到行首、和她的头对齐。 */
   .work-bubble {
     position: relative; flex: 0 1 auto;
-    max-width: calc(100% - 128px);
+    /* **别让它长成一条消息**（2026-11-27 晚，用户把旁白当成 AI 正文跑到右边去了）：
+       ① 宽度封在 72%——旁白再长也不许铺满整行，否则它就是一条「右对齐的消息」；
+       ② 边框走虚线：人发的话是实线 + 同一个底色，两样混在一起分不清谁在说。 */
+    max-width: min(calc(100% - 128px), 72%);
     align-self: flex-start; margin-top: 6px;
-    background: var(--panel-2); border: 1px solid var(--line);
+    background: var(--panel-2); border: 1px dashed var(--line);
     border-radius: var(--r); padding: 9px 12px;
     font-size: 14.5px; line-height: 1.5; color: var(--fg);
     max-height: 50vh; overflow-y: auto;
@@ -4450,10 +4456,22 @@
     return parts.join('；');
   }
 
-  /** 记一条刚答完的结果并重画；没有可显示的选择就不记——**不编**一句「你选了」。 */
+  /**
+   * 记一条刚答完的结果并重画；没有可显示的选择就不记——**不编**一句「你选了」。
+   *
+   * **同一条只记一次**（2026-11-27 晚修）：手机自己答完会走两次这儿——一次是 POST
+   * 成功之后（见 askNext），一次是服务端那条 `question-done` 回来。两边带的是同一道题、
+   * 同一份选择，按 `题号 + 答案内容` 认人，第二次只把时间往前推，不再记一条
+   * （真机上就是这么冒出两条一模一样的 chip 的）。
+   */
   function rememberAnswer(qid, items, source) {
-    if (!answerSig(items)) return;
-    localAnswers.push({ qid: qid || '', items: items, source: source || '', at: Date.now() });
+    var sig = answerSig(items);
+    if (!sig) return;
+    var key = (qid || '') + '|' + sig;
+    for (var i = 0; i < localAnswers.length; i++) {
+      if (localAnswers[i].key === key) { localAnswers[i].at = Date.now(); return; }
+    }
+    localAnswers.push({ key: key, qid: qid || '', items: items, source: source || '', at: Date.now() });
     while (localAnswers.length > LOCAL_ANSWER_KEEP) localAnswers.shift();
     render();   // 总分发：单帧模式那边没有聊天记录，render() 自己落到 renderMinimal
   }
@@ -4849,18 +4867,23 @@
     chatHiddenTurns = countTurns(keys, older);
     var all = list;
     if (older) list = list.slice(older);
-    // **刚答完的那道题**（见 rememberAnswer）：接在最后一条后面。
+    // **刚答完的那道题**（见 rememberAnswer）：按时间插进这一串里。
     //
-    // 为什么放在切窗之后：它不属于任何一轮（服务端那份 history 里还没有它），
-    // 也不该参与「还有几轮」的计数——它只是「刚刚发生的一件事」，永远在最底下。
-    // 服务端那条真 chip 一到（history 里出现同样的选择），这里就自动不再画（见 answerInHistory）。
+    // 两条讲究（2026-11-27 晚，用户实机报「卡片显示错位置、越堆越多」）：
+    //   ① **不是**一律贴到最后——它有时间戳，就按时间排；否则几条旧结果会全堆在屏幕最底下，
+    //      看着像「刚才答的」，其实是很早以前那道题。
+    //   ② 只在这一屏的范围内顶替服务端那条：比最老一条还老就退场——窗口都翻过去了，
+    //      它该等用户往上翻时由服务端那份 history 出现，不能一直挂在底下。
     if (localAnswers.length) {
+      var oldestAt = list.length && list[0].timestamp ? list[0].timestamp : 0;
       for (var la = 0; la < localAnswers.length; la++) {
         var one = localAnswers[la];
         if (answerInHistory(one.items)) continue;
-        list = list.concat([{
-          role: 'answer', items: one.items, timestamp: one.at, turn: null, local: true,
-        }]);
+        if (oldestAt && one.at <= oldestAt) continue;
+        var row = { role: 'answer', items: one.items, timestamp: one.at, turn: null, local: true };
+        var at = 0;
+        while (at < list.length && (list[at].timestamp || 0) <= row.timestamp) at++;
+        list.splice(at, 0, row);
       }
     }
     // 「上面还有，往上滑」要贴在**看得到的顶上**，而且**离顶远了就收起来**——
