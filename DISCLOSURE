@@ -110,8 +110,8 @@ without fetching anything from a CDN at runtime:
     mathematical notation.
 
 They are minified because that is how upstream publishes them; they are not
-obfuscated, they are byte-for-byte upstream artefacts, and their versions are
-recorded in the repository. Nothing here is first-party code, and neither
+obfuscated, and they are upstream artefacts: pdfjs-dist 3.11.174 (legacy build)
+and katex 0.16.11, each with a README in lib/vendor/ naming its source. Nothing here is first-party code, and neither
 library performs network, process or filesystem operations beyond rendering.
 
 The plugin's own code is plain, unminified JavaScript under lib/ and client/.
