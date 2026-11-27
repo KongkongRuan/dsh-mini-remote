@@ -44,6 +44,17 @@ profile 的 `node_modules` 允许 `link:` 依赖（`dsh-boot-suite` 就是软链
 （含 `devices.json`、`state.json` 这些**数据**在 `~/.dsh/dsh-mini-remote/`，不在包里，安全）
 之外的东西要提前备份 `package.json` / `pnpm-lock.yaml`。
 
+## 远端
+
+- `origin` = https://github.com/xingzhen199186/dsh-mini-remote.git（上游，**只读**：本机凭据对
+  这个仓库没有写权限，`git push` 会被拒）
+- `mine` = https://github.com/KongkongRuan/dsh-mini-remote.git（自己那份 fork，这条分支推在这儿）
+
+```powershell
+git push mine local/0.2.5-ux     # 推分支
+git fetch origin --tags          # 拉上游的版本
+```
+
 ## 每次改完要跑什么
 
 1. 仓库自带测试（不需要装依赖就能跑的那几个）：
