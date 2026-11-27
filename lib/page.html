@@ -435,6 +435,29 @@
   .ans .ans-q { color: var(--muted); margin-right: 6px; }
   .ans .ans-v { font-weight: 600; word-break: break-word; }
   .ans .ans-t { display: block; margin-top: 2px; font-size: 11px; color: var(--muted); }
+  /* ---------- 「这段思考」（2026-11-27，聊天模式） ----------
+     和 .cmd / .ans 同一族：不套气泡、细线起头。区别是它**可以展开**：
+     流式那一条（.live）只有一行摘要；落定的那条（.done）是原生 <details>，
+     点开看全文（服务端在收尾帧里补的那份，已截到 4000 字）。 */
+  .thought {
+    margin: 0 0 10px; padding: 5px 11px;
+    border-left: 2px solid var(--line); border-radius: 0 var(--r) var(--r) 0;
+    background: var(--panel-2); font-size: 13px; line-height: 1.6; color: var(--muted);
+  }
+  .thought .thought-k {
+    font-size: 11.5px; margin-right: 6px; letter-spacing: .04em; opacity: .85;
+  }
+  .thought .thought-s { color: inherit; }
+  .thought.live .thought-k { color: var(--ice); opacity: 1; }
+  .thought.done summary { cursor: pointer; list-style: none; display: flex; align-items: baseline; gap: 2px; }
+  .thought.done summary::-webkit-details-marker { display: none; }
+  .thought.done summary::before { content: '▸'; font-size: 10px; opacity: .7; margin-right: 4px; flex: none; }
+  .thought.done[open] summary::before { content: '▾'; }
+  .thought.done summary .thought-s { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .thought-body {
+    margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line);
+    white-space: pre-wrap; word-break: break-word; max-height: 40vh; overflow: auto;
+  }
   /* ---------- 历史里的一条指令（会话做的一个动作，不是谁说的话） ----------
      和上面两种气泡都刻意画得不同：不套框、不给复制按钮，只用左边一条细线起头。
      它是**系统动作**——长得像一句话，就会被当成 AI 的回答去读，而它根本不是回答。 */
@@ -2422,6 +2445,24 @@
      * 它也不进 #reply——2026-09-22 用户否掉的就是「过程的文字跑进回答区」。
      */
     thought: null,
+    /**
+     * **这一段思考**（2026-11-27，聊天模式要看的那个「思考过程」）。
+     *
+     * 和上面 `thought` 是两样东西，别混：
+     *   · `thought` 是鲸鱼娘的气泡台词（一句旁白，不进 #reply）；
+     *   · `thinking` 是模型这段思考本身：`{ detail, text, done, at }`，**要进 #reply**——
+     *     流式时贴在最后一条回答的位置上、只露一行摘要；落定后（`done`）变成可展开的定稿。
+     * 只留最新这一份：翻旧记录要看的思考，是「它刚才在想什么」，不是历史全量。
+     */
+    thinking: null,
+    /**
+     * 已经**落定到某条回答**上的思考：`{ [回答的 timestamp]: { detail, text } }`。
+     *
+     * 为什么按 timestamp 挂：定稿要贴在「它那一条回答」前面，翻页/重画/切回来都不能错位。
+     * 只在最新 8 条上留（见 reply 那条监听里的上限）——翻很旧的历史时没有思考，这是
+     * 有意的：服务端重放里没有 reasoning，**不编**。
+     */
+    thoughts: Object.create(null),
     // 服务端正去读这个会话的完整记录（点开一个插件没看过的会话时会有这一下）。
     historyLoading: false,
     // 「这份历史只到最近一段」（服务端读历史有上限时会给这一句）。
@@ -4080,6 +4121,57 @@
   }
 
   /**
+   * 「这段思考」那一行（2026-11-27，聊天模式要看的那个「思考过程」）。
+   *
+   * 两种长相，共用一套样式：
+   *   · 流式（live）：一个 `<div>`，只露「思考 · 摘要」；下一帧到了**原地改字**
+   *     （见 paintThoughtLive）——正文在流的时候每帧重画整串会卡，这里不能重画；
+   *   · 落定（done）：`<details>` 原生折叠，摘要还是那一行，点开看全文。
+   * 用 `<details>` 不自己写开关：键盘、读屏都认，也不用加脚本（同 noticeBlock 的做法）。
+   *
+   * 摘要取的是**最后一段**（和完整模式轨迹组头同一份 `detail`）：服务端压成一行 ≤160 字。
+   */
+  function thoughtSummaryLine(detail) {
+    var s = String(detail || '').replace(/\s+/g, ' ').trim();
+    return s.length > 80 ? s.slice(0, 79) + '…' : s;
+  }
+
+  function thoughtLiveHtml() {
+    var t = state.thinking;
+    if (!t) return '';
+    // 已经定稿、但回答还没到（`reply` 落地前那一两秒）：先在这儿折叠着显示，
+    // 别让那一行凭空消失再出现——真机上就是一闪。
+    if (t.done) return thoughtDoneHtml(t);
+    return '<div class="thought live" data-thought-live="1">'
+      + '<span class="thought-k">思考</span>'
+      + '<span class="thought-s">' + escapeHtml(thoughtSummaryLine(t.detail)) + '</span></div>';
+  }
+
+  function thoughtDoneHtml(t) {
+    var body = String(t && t.text ? t.text : '').trim();
+    if (!body) return '';
+    var head = thoughtSummaryLine(t.detail || body.split('\n')[0]);
+    return '<details class="thought done"><summary>'
+      + '<span class="thought-k">思考</span>'
+      + '<span class="thought-s">' + escapeHtml(head) + '</span></summary>'
+      + '<div class="thought-body">' + escapeHtml(body) + '</div></details>';
+  }
+
+  /**
+   * 流式那一下：**只改那一行的字**，不重画整串。
+   *
+   * 找不到那块（比如刚切会话、刚开一轮）才整画一次——一次，不是每帧。
+   */
+  function paintThoughtLive() {
+    var t = state.thinking;
+    if (!t || t.done) return;
+    var el = replyEl.querySelector ? replyEl.querySelector('[data-thought-live]') : null;
+    if (!el) { render(); return }
+    var s = el.querySelector ? el.querySelector('.thought-s') : null;
+    if (s) s.textContent = thoughtSummaryLine(t.detail);
+  }
+
+  /**
    * 一条消息的 HTML。从 renderChat 的逐条循环里提出来：完整模式要把每轮的过程组
    * **穿插进这串消息的原位**（renderFull → trajInterleave），聊天模式直接按顺序拼——
    * 两边画同一条消息必须是同一段代码，两处各写一遍迟早走样。
@@ -4210,7 +4302,18 @@
     var moreNote = (older || state.historyHasMore)
       ? '<div class="more-note' + (chatNoteVisible() ? '' : ' hide') + '">' + noteText + '</div>'
       : '';
-    return { empty: null, moreNote: moreNote, rows: list.map(chatMsgHtml), list: list, all: all };
+    var rows = [];
+    for (var qi = 0; qi < list.length; qi++) {
+      var qm = list[qi];
+      // 思考的定稿挂在**它那一条回答**前面（2026-11-27）：按回答的 timestamp 对号，
+      // 所以翻页、重画、切回来都不会错位。流式那一份还在 live 区（见 thoughtLiveHtml）。
+      if (qm && qm.role === 'assistant' && state.thoughts && state.thoughts[qm.timestamp]) {
+        var tb = thoughtDoneHtml(state.thoughts[qm.timestamp]);
+        if (tb) rows.push(tb);
+      }
+      rows.push(chatMsgHtml(qm));
+    }
+    return { empty: null, moreNote: moreNote, rows: rows, list: list, all: all };
   }
 
   function renderChat() {
@@ -4295,8 +4398,7 @@
   }
 
   /** 同一条记录的稳定身份：把取回来的更早那段拼进去时靠它去重（角色 + 时间戳 + 轮号）。 */
-  function chatKey(m) {
-    return (m.role || '') + '|' + (m.timestamp || 0) + '|'
+  function chatKey(m) {    return (m.role || '') + '|' + (m.timestamp || 0) + '|'
       + (m.turn === undefined || m.turn === null ? '' : m.turn);
   }
 
@@ -4529,6 +4631,10 @@
     // 「正在执行」不再追加一个气泡——它是常驻的 #work，排在整串消息下面。
     // 流式那段（live）接在所有行（含穿插的过程组）之后：过程在回答之前，
     // 正在流的半句就是「回答」那个位置（10.3-1）。
+    //
+    // 聊天模式多一段「正在想的那一行」（2026-11-27）：排在 live 前面——思考在回答之前。
+    // 完整模式不放：那边的轨迹组头本来就有这一段，放两遍是重复。
+    if (state.mode === 'chat') html += thoughtLiveHtml();
     if (liveHtml) html += liveHtml;
     return built.moreNote + html;
   }
@@ -5141,6 +5247,9 @@
         state.historyOlder = [];
         state.historyOlderFor = null;
         state.historyFetching = false;
+        // 思考是「这个会话这一段回答」的，换了会话立刻作废（同 historyOlder 的理由）。
+        state.thinking = null;
+        state.thoughts = Object.create(null);
         // 这两个字段这一帧已经按快照写过了（见上面那两行）。只有**老服务端不带它们**时
         // 才清空——不带就说明这份快照没有「前面还有」的信息，留着上一个会话的值会骗人。
         if (!('historyHasMore' in snap)) state.historyHasMore = false;
@@ -6332,7 +6441,10 @@
     streamSubscribed = streamWanted;
     es = new EventSource('/mini/api/stream?clientId=' + encodeURIComponent(clientId)
       + (state.mode === 'full' ? '&full=1' : '')
-      + (streamWanted ? '&stream=1' : ''));
+      + (streamWanted ? '&stream=1' : '')
+      // `thought=1`（2026-11-27）= 「我在聊天模式，把思考那一行也给我」。
+      // 只订摘要和收尾全文，**不订轨迹**（那份单轮最高约 946KB，聊天模式用不着）。
+      + (state.mode === 'chat' ? '&thought=1' : ''));
 
     // 给这条流套一层：**每一帧都记下到达时刻**。后面那个轮询兜底就靠它判断
     // 「SSE 是不是已经不干活了」——只在外面包一层，下面那些事件处理一个字都不用改。
@@ -6420,6 +6532,30 @@
       if (state.mode !== 'full') return;
       state.trajectoryLive = typeof frame.detail === 'string' ? frame.detail : '';
       render();
+    });
+    /**
+     * 聊天模式的思考（2026-11-27，只有 `?thought=1` 那条连接会收到）。
+     *
+     * 两种帧：
+     *   · `done:false` → 一行摘要，**原地改字**（见 paintThoughtLive），不重画整串；
+     *   · `done:true`  → 这段思考写完了，带全文；先当「未落定」放着（live 区一个可折叠的
+     *     方块），等 `reply` 到了再挂到那条回答上（就地写在 reply 监听里）。
+     * 换了会话就别收：这段属于上一个会话（和 trajectory-live 同一个口径）。
+     */
+    es.addEventListener('thought', function (e) {
+      var frame;
+      try { frame = JSON.parse(e.data); } catch (err) { return; }
+      if (!frame) return;
+      if (frame.sessionId && state.boundSessionId && frame.sessionId !== state.boundSessionId) return;
+      if (frame.done) {
+        var text = typeof frame.text === 'string' ? frame.text : '';
+        if (!text) { state.thinking = null; render(); return; }
+        state.thinking = { detail: frame.detail || '', text: text, done: true, at: Date.now() };
+        render();
+        return;
+      }
+      state.thinking = { detail: frame.detail || '', text: '', done: false, at: Date.now() };
+      paintThoughtLive();
     });
     es.addEventListener('navigation-title', function (e) {
       var payload;
@@ -6514,6 +6650,20 @@
       state.live = '';
       state.liveTool = null;
       state.streamReceived = false;
+      // 这一段思考从此**挂到这条回答上**（2026-11-27）：之后翻页、重画都跟着它走。
+      // **就地写，不抽成函数**：这段监听被 page.test.mjs 的 feedReply 单独抠出来跑，
+      // 抽出去的那个函数不在切片里，一跑就是 ReferenceError（这一条踩过）。
+      var think = state.thinking;
+      if (think && think.done && payload.timestamp) {
+        state.thoughts[payload.timestamp] = { detail: think.detail || '', text: think.text || '' };
+        state.thinking = null;
+        // 只留最近 8 条：再往前的思考本来也看不到了（服务端重放里没有 reasoning）。
+        var thinkKeys = Object.keys(state.thoughts);
+        while (thinkKeys.length > 8) {
+          delete state.thoughts[thinkKeys[0]];
+          thinkKeys = Object.keys(state.thoughts);
+        }
+      }
       setRunning(false);
       render();
       if (!document.hidden) {

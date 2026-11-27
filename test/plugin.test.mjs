@@ -4527,3 +4527,58 @@ test('B 项目路由：本机列出空名单；B 没连上时新建给明确错�
   assert.equal(pickerRes.out.status, 400)
   assert.match(JSON.parse(pickerRes.out.body).error, /B 端还没有连上/)
 })
+
+// ---------------------------------------------------------------------------
+// 聊天模式的「思考」（2026-11-27）
+//
+// 用户在聊天模式里看不到模型在想什么：思考只走「完整」模式那条轨迹。这一条改成
+// **另开一帧** `thought`，只发给 `?thought=1` 的那几条连接（聊天模式）：
+//   · 流式：一行摘要（≤160 字），500 毫秒一跳；
+//   · 收尾：`done:true` + 全文（截到 4000 字），页面据此转成可折叠的定稿。
+// 边界和轨迹那条一样：没订的连接一个字节都不该收到。
+// ---------------------------------------------------------------------------
+
+test('思考帧：只推给 ?thought=1 的连接，摘要 500ms 一跳，收尾那帧带全文', async (t) => {
+  const p = await bootPlugin()
+  t.after(p.stop)
+  await bindSession(p, 'sess-1')
+  const session = { id: 'sess-1', header: { id: 'sess-1' } }
+  const agent = { status: 'running', session }
+  const stream = p.handlers.get('agent/assistant-stream')
+
+  const chat = await openTraceStream(`${p.base}/mini/api/stream?token=${p.token}&thought=1&clientId=chat`)
+  const full = await openTraceStream(`${p.base}/mini/api/stream?token=${p.token}&full=1&clientId=full`)
+  await waitFrames(chat, 'state', 1)
+  await waitFrames(full, 'state', 1)
+
+  stream({ agent, frame: { type: 'start' } })
+  stream({ agent, frame: { type: 'chunk', chunk: { type: 'reasoning-delta', text: '先看看仓库结构' } } })
+  const [first] = await waitFrames(chat, 'thought', 1)
+  assert.equal(first.detail, '先看看仓库结构', '聊天模式要看到「它现在在想什么」')
+  assert.equal(first.done, false, '流式那帧不是定稿')
+  assert.equal(first.sessionId, 'sess-1')
+
+  // 500 毫秒节流：紧接着再喂一段，这一帧不该立刻到（省的是家宽上行）。
+  stream({ agent, frame: { type: 'chunk', chunk: { type: 'reasoning-delta', text: '，然后从 readme 下手' } } })
+  await new Promise((resolve) => setTimeout(resolve, 120))
+  assert.equal(chat.frames.filter((f) => f.name === 'thought').length, 1, '节流窗口内不追加帧')
+
+  // 过了窗口再来一段：第二帧到，摘要跟着走。
+  await new Promise((resolve) => setTimeout(resolve, 520))
+  stream({ agent, frame: { type: 'chunk', chunk: { type: 'reasoning-delta', text: '。' } } })
+  const two = await waitFrames(chat, 'thought', 2)
+  assert.ok(String(two[1].detail).includes('从 readme 下手'), '摘要跟着打字走')
+
+  // 思考写完（工具调用开始 = 这一段思考结束）：补一帧 done + 全文。
+  stream({ agent, frame: { type: 'chunk', chunk: { type: 'tool-call-delta', argumentsDelta: '{"a":1}' } } })
+  const all = await waitFrames(chat, 'thought', 3)
+  const done = all.filter((f) => f.done === true).pop()
+  assert.ok(done, '思考结束要补一帧 done，否则页面上那一行永远停在「还在想」')
+  assert.ok(String(done.text).includes('先看看仓库结构'), 'done 帧带全文')
+  assert.ok(String(done.text).includes('从 readme 下手'), '全文是整段，不是最后一截')
+
+  // 没订的那条：一个字节都不该收到（和轨迹那条同一个边界）。
+  await new Promise((resolve) => setTimeout(resolve, 200))
+  assert.equal(full.frames.filter((f) => f.name === 'thought').length, 0,
+    '完整模式那条没订 thought，就不该收——那边的思考走轨迹组头')
+})
