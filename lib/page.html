@@ -418,6 +418,23 @@
   /* 聊天模式下 AI 的回答**不套气泡**（用户要求「参考单帧模式那样」）。
      用户自己的指令仍然是气泡，一左一右、一个有框一个没框，正好分得清谁说的。 */
   .said { margin-bottom: 18px; }
+  /* ---------- 历史里「你答过的一道题」（2026-11-27） ----------
+     答题不产生 user/message，答案落在工具结果里（见 lib/answer.js），所以它既不是
+     你说的话、也不是模型答的话，是**第三样东西**：一道题的结论。
+     画法借 .cmd 的「细线起头」思路，但改用虚线框——虚线是「你点出来的选择」，
+     和实线气泡（说的话）一眼分得开。一题一行，多题就叠着来。 */
+  .ans {
+    width: fit-content; max-width: 100%;
+    margin: 0 0 14px; padding: 5px 11px;
+    border: 1px dashed var(--line); border-radius: var(--r);
+    background: var(--panel); font-size: 13px; line-height: 1.6;
+  }
+  .ans .ans-row { display: block; }
+  /* 多题时两行贴在一起会连成一句话（真机截图看过），隔开一点。 */
+  .ans .ans-row + .ans-row { margin-top: 3px; }
+  .ans .ans-q { color: var(--muted); margin-right: 6px; }
+  .ans .ans-v { font-weight: 600; word-break: break-word; }
+  .ans .ans-t { display: block; margin-top: 2px; font-size: 11px; color: var(--muted); }
   /* ---------- 历史里的一条指令（会话做的一个动作，不是谁说的话） ----------
      和上面两种气泡都刻意画得不同：不套框、不给复制按钮，只用左边一条细线起头。
      它是**系统动作**——长得像一句话，就会被当成 AI 的回答去读，而它根本不是回答。 */
@@ -1094,7 +1111,7 @@
     margin: 0 0 14px; padding: 8px 12px; border: 1px dashed var(--line);
     border-radius: var(--r); color: var(--muted); font-size: 12.5px; line-height: 1.6;
   }
-  /* 「上面还有更早的」：聊天记录是一屏一屏铺的（见 renderChat 里 CHAT_PAGE 那段）。
+  /* 「上面还有更早的」：聊天记录是一屏一屏铺的（见 renderChat 里 CHAT_TURNS 那段）。
      两处讲究：
      · **贴在看得到的顶上**（sticky），不随内容走——随内容走就只在滑到顶那一瞬间可见，
        而那一瞬间正好触发了自动再放一屏，那句话等于永远看不见。
@@ -1549,23 +1566,44 @@
     border: 1px solid var(--line); background: var(--panel-2); color: inherit; font-family: inherit; }
   /* 这一屏唯一的主按钮走 --act：深色下暖金，浅色下宝蓝配白字。 */
   #approveCard .afoot button#approveAllow { background: var(--act); border-color: var(--act); color: var(--on-act); font-weight: 600; }
-  #askCard { position: fixed; inset: 0; z-index: 300; background: var(--bg);
-    display: none; flex-direction: column; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); overflow-y: auto; }
+  /* 答题卡：**底部抽屉**，不是整屏遮罩（2026-11-27 用户要求）。
+     原来 inset:0 把上下文全挡住——想看一眼上一轮说了什么都不行。
+     现在只占下面这一块：上面永远留一截历史（照样能滑），抽屉自己也能往下拖收起。 */
+  #askCard { position: fixed; left: 0; right: 0; bottom: 0; z-index: 300; background: var(--bg);
+    display: none; flex-direction: column;
+    max-height: 48vh;                 /* 2026-11-27：72vh → 58vh → 48vh（用户实测还嫌大）；内容多时 .qbody 自己滚 */
+    padding: 0 16px calc(14px + env(safe-area-inset-bottom));
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -10px 30px rgba(0, 0, 0, .16);
+    overflow: hidden; }
   #askCard.on { display: flex; }
-  #askCard .qhead { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
-  #askCard .qtext { font-size: 18px; line-height: 1.6; margin-bottom: 10px; }
-  #askCard .qdetail { font-size: 14px; line-height: 1.65; color: var(--muted); margin-bottom: 16px; white-space: pre-wrap; }
-  #askCard .opt { display: block; width: 100%; text-align: left; margin: 0 0 10px; padding: 15px 16px;
+  /* 拖的时候跟手：拖拽期间不留过渡，松手才吸附。 */
+  #askCard.dragging { transition: none; }
+  /* 收起：只剩把手 + 那一行标题（点一下把手、或往上拖，再展开）。 */
+  #askCard.collapsed { max-height: 58px; }
+  #askCard.collapsed .qtext,
+  #askCard.collapsed .qdetail,
+  #askCard.collapsed .qbody,
+  #askCard.collapsed .qfoot { display: none; }
+  /* 把手：既告诉人「这个能拖」，也是拖拽的落手点。touch-action 关掉，免得边拖边滚页面。 */
+  #askCard .qhandle { flex: none; margin: 6px auto 2px; width: 44px; height: 4px;
+    border-radius: 999px; background: var(--line); touch-action: none; }
+  /* 题目正文那一块自己滚，下面的按钮永远露着。 */
+  #askCard .qbody { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  #askCard .qhead { font-size: 12.5px; color: var(--muted); margin-bottom: 7px; }
+  #askCard .qtext { font-size: 17px; line-height: 1.5; margin-bottom: 8px; }
+  #askCard .qdetail { font-size: 13px; line-height: 1.55; color: var(--muted); margin-bottom: 10px; white-space: pre-wrap; }
+  #askCard .opt { display: block; width: 100%; text-align: left; margin: 0 0 7px; padding: 11px 13px;
     font-size: 16px; line-height: 1.5; border-radius: var(--r); border: 1px solid var(--line);
     background: var(--panel-2); color: inherit; font-family: inherit; }
   /* 选中的那一条用冰蓝描边：它是"你选的"，不是"你要按的主按钮"——主按钮是暖金。 */
   #askCard .opt.sel { border-color: var(--ice); background: rgba(169, 200, 232, .1); }
-  #askCard .opt small { display: block; color: var(--muted); font-size: 13px; margin-top: 5px; }
+  #askCard .opt small { display: block; color: var(--muted); font-size: 12px; line-height: 1.45; margin-top: 3px; }
   #askCard textarea { width: 100%; box-sizing: border-box; font-size: 16px; line-height: 1.6;
     border-radius: var(--r); border: 1px solid var(--line); background: var(--panel-2); color: inherit;
     padding: 12px; font-family: inherit; resize: vertical; }
-  #askCard .qfoot { margin-top: auto; display: flex; gap: 10px; padding-top: 16px; }
-  #askCard .qfoot button { flex: 1; padding: 15px 8px; font-size: 16px; border-radius: var(--r);
+  #askCard .qfoot { margin-top: auto; display: flex; gap: 10px; padding-top: 10px; }
+  #askCard .qfoot button { flex: 1; padding: 11px 8px; font-size: 15px; border-radius: var(--r);
     border: 1px solid var(--line); background: var(--panel-2); color: inherit; font-family: inherit; }
   /* 这一屏唯一的主按钮，暖金。 */
   #askCard .qfoot button#askNext { background: var(--act); border-color: var(--act); color: var(--on-act); font-weight: 600; }
@@ -1827,14 +1865,18 @@
 </head>
 <body>
 
-<!-- 电脑提问时弹出来的答题卡片。默认隐藏，收到 question 事件才显示。 -->
+<!-- 电脑提问时弹出来的答题卡：**底部抽屉**（2026-11-27 从整屏遮罩改过来）。
+     上面留出历史区（能滑），抽屉自己能往下拖收起。默认隐藏，收到 question 事件才显示。 -->
 <div id="askCard">
+  <div class="qhandle" id="askHandle" role="button" aria-label="收起或展开题目"></div>
   <div class="qhead" id="askHead"></div>
-  <div class="qtext" id="askText"></div>
-  <div class="qdetail" id="askDetail"></div>
-  <div id="askOpts"></div>
-  <div id="askCustomWrap" style="display:none;margin-bottom:10px">
-    <textarea id="askCustom" rows="3" placeholder="用你自己的话回答……"></textarea>
+  <div class="qbody">
+    <div class="qtext" id="askText"></div>
+    <div class="qdetail" id="askDetail"></div>
+    <div id="askOpts"></div>
+    <div id="askCustomWrap" style="display:none;margin-bottom:10px">
+      <textarea id="askCustom" rows="3" placeholder="用你自己的话回答……"></textarea>
+    </div>
   </div>
   <div class="qfoot">
     <button id="askBack" type="button">上一题</button>
@@ -2385,6 +2427,22 @@
     // 「这份历史只到最近一段」（服务端读历史有上限时会给这一句）。
     historyTruncated: false,
     historyNote: '',
+    /**
+     * 更早的那几段历史（2026-11-27，按需取回来的，见 fetchOlderChat）。
+     *
+     * 服务端现在只在 `state` 快照里推最近几轮（`historyTurns`），更早的存在这儿：
+     * 拼在 `state.history` **前面**用（见 buildChat）。切会话必须清空——两场会话的
+     * 时间戳会撞在一起，留着就会把上一个会话的旧记录混进新会话里。
+     */
+    historyOlder: [],
+    /** 上面那一份是哪场会话的（和 historyOlder 同生同死）。 */
+    historyOlderFor: null,
+    /** 服务端说「前面还有没给的轮」（见 store.js 的 historyHasMore）。 */
+    historyHasMore: false,
+    /** 这次给到的最早轮号，取更早时当 before 用。 */
+    historyOldestTurn: null,
+    /** 正在取更早的那一段（防止一次手势连发好几个请求）。 */
+    historyFetching: false,
     /**
      * 执行轨迹（「完整」模式里的过程）：一组一轮，形状与服务端
      * `GET /mini/api/trajectory` 的 `turns` 一字不差
@@ -3398,13 +3456,24 @@
           stopTimer = null;
           if (state.running) {
             paintStop(false);
-            toast('还没停下来。可以再按一次，或者到电脑上看看。');
+            toast('还没停下来。再按一次；要是电脑上还挂着一道题，先把它答掉。');
           }
         }, 10000);
       })
       .catch(function (err) {
         paintStop(false);
-        toast(err.message || '停止失败');
+        // 「这个会话现在没在跑」**不是失败**：电脑那边已经停了、或者这一轮根本还没起。
+        // 2026-11-25 真机上按停止后弹的就是这类提示，用户读成「停止失败」。
+        // 遇到它就把本地状态纠正过来，别让人接着按。
+        var msg = err && err.message ? String(err.message) : '';
+        if (msg.indexOf('没在跑') >= 0) {
+          setRunning(false);
+          toast('电脑那边已经停了。');
+          return;
+        }
+        // 剩下的才是真没发出去（断网、口令过期、服务没开）。把原因带出来，
+        // 不要再用一句含糊的「停止失败」把错误吞掉。
+        toast(msg ? ('停止没发出去：' + msg) : '停止没发出去：连不上电脑');
       });
   }
 
@@ -3845,21 +3914,92 @@
   }
 
   /**
-   * 聊天记录**一次铺多少条**，以及这次已经铺到多少条。
+   * 聊天记录**一次铺多少轮**，以及这次已经铺到第几轮。
    *
    * 用户 2026-09-30 报的：在导航栏点一个没选中的会话，切过去很慢。查下来不是网络、
    * 也不是服务端取数（本机实测那三个接口 168 / 36 / 107 毫秒），而是这一页**一次把
    * 推上来的 200 条记录全铺出来**。这 200 条本来就已经在页面手里了——所以「往上多放
    * 一点」是个纯本地动作，不用再问服务端，也该是瞬时的。
    *
-   * 40 这个数：一屏通常放得下三到五段长回答，40 条够铺六七屏；首屏只干五分之一的活，
-   * 而往上翻的人一次也就看一屏，翻不到边界。
+   * **2026-11-27 改单位：条 → 轮。** 原来按条切（40 条），可一轮里的条数很不齐
+   * （一条指令 + 好几段回答 + 子智能体通知都可能算一轮），40 条有时只够一轮、有时横跨
+   * 十几轮，首屏看到的「最近一段」长度飘。用户要的是「只留最近 3 轮」，按轮切才对得上。
+   *
+   * 3 这个数：手机上一屏通常放得下一到两轮长回答，3 轮首屏就够看；要往前翻一次再放 3 轮。
    */
-  var CHAT_PAGE = 40;
-  var chatWindow = CHAT_PAGE;   // 从最新那条往回数，这次铺了多少条
-  var chatWindowFor = null;     // 上面这个数是哪个会话的（换会话要收回首屏，见 renderChat）
+  var CHAT_TURNS = 3;
+  var chatTurns = CHAT_TURNS;   // 从最新往回数，这次铺到第几轮
+  var chatTurnsFor = null;      // 上面这个数是哪个会话的（换会话要收回首屏，见 renderChat）
+  var chatTotalTurns = 0;       // 本地一共多少轮（由 buildChat 记）
+  var chatHiddenTurns = 0;      // 窗口外面还压着多少轮（那句提示要用）
   var chatLoaded = 0;           // 本地一共有多少条可铺（滤掉排队那条之后），由 renderChat 记
   var chatGrowArmed = true;     // 这一轮靠近顶部已经放过一屏没有（见 maybeGrowChat）
+  /**
+   * 页面**自己**刚把页面滚到哪儿了（-1 = 没滚过）。
+   *
+   * 为什么要记它：`scrollChat` 会把「最新那条回答的开头」对齐到视野顶部，而窗口只有 3 轮
+   * 之后，这个位置经常落在「离顶一屏以内」——`maybeGrowChat` 就把它当成「用户滑到顶了」，
+   * 打开会话的那一下白多铺一屏（2026-11-27 离线靶场实测：首屏 6 轮，不是 3 轮）。
+   * 所以自己滚过去的那个位置，收到的那一下滚动事件不算用户往上翻。
+   */
+  var chatTopOwned = -1;
+
+  /**
+   * 每一行属于哪一轮——给「按轮切窗口」用的分组键。
+   *
+   * 口径（和 DSH 的事件一致）：
+   *   · `turn` 是数字的，按轮号分组；
+   *   · **没有轮号的行跟着下一轮走**：指令行 `/xxx` 本来就是给下一轮下的，子智能体通知
+   *     也是那条指令派出去的事。跟着上一轮会把它们变成上一轮的尾巴；
+   *   · 尾部那些后面再没有轮了的（指令已发、回答还没来），跟着上一轮；
+   *   · 整串都没有轮号（老记录、或者只有指令行），当成一组 `'pre'`。
+   *
+   * 返回和 list 等长，每项是组键（数字或 `'pre'`）。
+   */
+  function chatTurnKeys(list) {
+    var keys = [];
+    var i;
+    for (i = 0; i < list.length; i++) {
+      keys.push(list[i] && typeof list[i].turn === 'number' ? list[i].turn : null);
+    }
+    var next = null;
+    for (i = keys.length - 1; i >= 0; i--) {
+      if (keys[i] === null) keys[i] = next;
+      else next = keys[i];
+    }
+    var prev = null;
+    for (i = 0; i < keys.length; i++) {
+      if (keys[i] === null) keys[i] = prev;
+      else prev = keys[i];
+    }
+    for (i = 0; i < keys.length; i++) if (keys[i] === null) keys[i] = 'pre';
+    return keys;
+  }
+
+  /** `[0, end)` 里有多少轮（组键已经按轮号排好，相邻不同就算新的一轮）。 */
+  function countTurns(keys, end) {
+    var n = 0;
+    var mark = null;
+    for (var i = 0; i < end; i++) {
+      if (keys[i] !== mark) { mark = keys[i]; n += 1; }
+    }
+    return n;
+  }
+
+  /** 窗口上沿：留下最后 `turns` 轮，返回第一行的下标。 */
+  function turnWindowStart(keys, turns) {
+    var seen = [];
+    var start = keys.length;
+    var want = Math.max(1, turns || 0);
+    for (var i = keys.length - 1; i >= 0; i--) {
+      if (seen.indexOf(keys[i]) < 0) {
+        if (seen.length >= want) break;
+        seen.push(keys[i]);
+      }
+      start = i;
+    }
+    return start;
+  }
 
   /** 触发线：离顶一屏的四分之一以内。放一屏和那颗提示共用这一条，别写成两个数。 */
   function chatEdge() {
@@ -3907,6 +4047,39 @@
   var expandedUserMsgs = Object.create(null);
 
   /**
+   * 历史里「你答过的一道题」。
+   *
+   * 长相对齐 .cmd（细线框、不是气泡）：它是**你对一道题的结论**，既不是你说的话，
+   * 也不是模型答的话。所以不套 .bubble、也不给复制按钮——复制一句「你选了 A、B」
+   * 没有意义。
+   *
+   * 数据来自工具结果（见 lib/answer.js）：`items` 逐题一条；`header` / `title` 只在
+   * 题目的调用也在窗口里时才有，取不到就只显示答案本身，**不编一个问题出来**。
+   */
+  function answerBlock(m) {
+    var items = Array.isArray(m.items) ? m.items : [];
+    var rows = '';
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i] || {};
+      var picked = Array.isArray(it.selected) ? it.selected : [];
+      var custom = typeof it.custom === 'string' ? it.custom.trim() : '';
+      var what = picked.length ? '你选了：' + picked.join('、') : '';
+      if (custom) what = what ? what + '；你写了：' + custom : '你写了：' + custom;
+      // 两样都没有的那一题不画：一个空 chip 比没有更让人糊涂。
+      if (!what) continue;
+      var q = it.header || '';
+      if (!q && it.title) q = it.title.length > 24 ? it.title.slice(0, 24) + '…' : it.title;
+      rows += '<span class="ans-row">'
+        + (q ? '<span class="ans-q">' + escapeHtml(q) + '</span>' : '')
+        + '<span class="ans-v">' + escapeHtml(what) + '</span></span>';
+    }
+    if (!rows) return '';
+    return '<div class="ans">' + rows
+      + (m.timestamp ? '<span class="ans-t">' + escapeHtml(timeLabel(m.timestamp)) + '</span>' : '')
+      + '</div>';
+  }
+
+  /**
    * 一条消息的 HTML。从 renderChat 的逐条循环里提出来：完整模式要把每轮的过程组
    * **穿插进这串消息的原位**（renderFull → trajInterleave），聊天模式直接按顺序拼——
    * 两边画同一条消息必须是同一段代码，两处各写一遍迟早走样。
@@ -3918,6 +4091,8 @@
     // 子智能体完工的通知：同一类「会话做的事」，画成一张可展开的卡片
     // （见 noticeBlock 的说明）。它没有复制按钮，也没有气泡。
     if (m.role === 'notice') return noticeBlock(m);
+    // 你答过的一道题：第四种东西，画成一条 chip（见 answerBlock 的说明）。
+    if (m.role === 'answer') return answerBlock(m);
     // 被按停的那一轮：标一句，别让人以为模型答到一半断了。
     var stopped = m.interrupted ? '<span class="stopped">已停止</span>' : '';
     // 两种消息都给复制按钮。自己敲的指令也常有「再发一遍」「拿去别处用」的时候，
@@ -3961,11 +4136,11 @@
    * 哪怕在窗口外也要露出来（10.3-3，「命中组在原位强开」的原位得先在场）。
    */
   function buildChat(searchTurns) {
-    // 换了会话就把窗口收回首屏：上一个会话铺到多少条都不该跟过来——那正是这次要修的慢。
+    // 换了会话就把窗口收回首屏：上一个会话铺到多少轮都不该跟过来——那正是这次要修的慢。
     // 判据用会话 id 而不是 history 的引用：服务端每次推的都是整份新数组，比引用永远「变了」。
-    if (chatWindowFor !== state.boundSessionId) {
-      chatWindowFor = state.boundSessionId;
-      chatWindow = CHAT_PAGE;
+    if (chatTurnsFor !== state.boundSessionId) {
+      chatTurnsFor = state.boundSessionId;
+      chatTurns = CHAT_TURNS;
     }
     // **还在排队的那条不算「已发出」，这里要把它从聊天记录里滤掉。**
     //
@@ -3981,7 +4156,10 @@
     // 等它真跑起来、从队列里消失，这一笔自然就露出来了。
     var queuedIds = {};
     (state.queued || []).forEach(function (q) { if (q && q.id) queuedIds[q.id] = true; });
-    var list = (state.history || []).filter(function (m) {
+    // 服务端只推最近几轮，更早的是按需取回来的（见 fetchOlderChat），拼在前面用。
+    // 两段的钟是同一个（服务端的 historyOldestTurn / 事件 time），不会接错。
+    var source = (state.historyOlder || []).concat(state.history || []);
+    var list = source.filter(function (m) {
       return !(m.role === 'user' && m.id && queuedIds[m.id]);
     });
     // 先记「本地一共有多少条」再分支：下面那条「还没有对话记录」的路也要把数记成 0，
@@ -3991,6 +4169,9 @@
       // 「正在读」和「确实没有」是两件事，分开说。点开一个插件没看过的会话时，
       // 服务端要去 DSH 的会话记录里读它那一段（最大的那条 20 MB、约半秒），
       // 这期间说「还没有对话记录」会让人以为这个会话本来就是空的。
+      // 轮数也一起清零：不然中途清空一次会留着旧轮数，让 maybeGrowChat 白忙一场。
+      chatTotalTurns = 0;
+      chatHiddenTurns = 0;
       return {
         empty: state.historyLoading
           ? '<div class="placeholder">正在读取这个会话的记录…</div>'
@@ -3998,9 +4179,11 @@
         moreNote: '', rows: [], list: [], all: [],
       };
     }
-    // **只铺最近那几十条**，剩下的留在手里等用户往上滑（来由见 CHAT_PAGE 那段）。
-    // 切在**滤掉排队那条之后**：不然被滤掉的那条会白占一个名额。
-    var older = Math.max(0, chatLoaded - chatWindow);
+    // **只铺最近 3 轮**，剩下的留在手里等用户往上滑（来由见 CHAT_TURNS 那段）。
+    // 分组切在**滤掉排队那条之后**：不然被滤掉的那条会白占一个名额。
+    var keys = chatTurnKeys(list);
+    chatTotalTurns = countTurns(keys, keys.length);
+    var older = turnWindowStart(keys, chatTurns);
     // 搜索命中轮把窗口上沿抬到自己（10.3-3）：不然命中的过程组按「组跟消息走」
     // 的规矩被裁在窗口外，搜得到、看不见。
     if (searchTurns && searchTurns.length) {
@@ -4011,13 +4194,21 @@
         }
       }
     }
+    // 「外面还压着几轮」按最终上沿重算：搜索把窗口抬高之后，提示里的数字得跟着变。
+    chatHiddenTurns = countTurns(keys, older);
     var all = list;
     if (older) list = list.slice(older);
     // 「上面还有，往上滑」要贴在**看得到的顶上**，而且**离顶远了就收起来**——
     // 两处讲究见 .more-note 的样式注释。露 / 收在这里先按当前位置定一次，
     // 之后由滚动里的 paintChatNote 接着跟。
-    var moreNote = older
-      ? '<div class="more-note' + (chatNoteVisible() ? '' : ' hide') + '">往上滑看更早的</div>'
+    // 数字说「还有几轮」：按条数说话（「还有 37 条」）没人能算出还要滑几次。
+    // 本地翻完了、服务端说前面还有（historyHasMore）时就只说「往上滑取更早的」——
+    // 那几段还在服务端手里，具体几轮得取回来才知道，**不编一个数**。
+    var noteText = older
+      ? '往上滑看更早的' + (chatHiddenTurns > 0 ? '（还有 ' + chatHiddenTurns + ' 轮）' : '')
+      : (state.historyHasMore ? '往上滑取更早的' : '');
+    var moreNote = (older || state.historyHasMore)
+      ? '<div class="more-note' + (chatNoteVisible() ? '' : ' hide') + '">' + noteText + '</div>'
       : '';
     return { empty: null, moreNote: moreNote, rows: list.map(chatMsgHtml), list: list, all: all };
   }
@@ -4046,7 +4237,14 @@
     // 单帧模式那边也在往 main 上滚（回答落定要跳到页面顶端），别把那一下当成「他在往上翻」；
     // 本地都放完了也没什么可放的。完整模式画的也是这串聊天记录，翻页照旧要能放。
     if (state.mode === 'minimal' || chatLoaded <= 0) return;
-    if (chatWindow >= chatLoaded) return;
+    // 本地翻完了但服务端还有更早的，也要放行（见 growChat 的第二条路）。
+    if (chatTurns >= chatTotalTurns && !state.historyHasMore) return;
+    // **页面自己刚滚过去的那个位置不算「用户往上翻」**：首屏把最新回答的开头对齐到顶部
+    // 时，那个位置常常就在离顶一屏以内，不挡一下就会白多铺一屏（见 chatTopOwned）。
+    // 注意只挡**放屏**这一件事：装填记号照旧要按位置更新，不然放完一屏之后
+    // 自己那次补偿滚动会把 chatGrowArmed 卡在 false——用户再滑到顶就再也放不出来了。
+    var owned = chatTopOwned >= 0 && Math.abs(mainEl.scrollTop - chatTopOwned) <= 2;
+    if (owned) chatTopOwned = -1;
     if (mainEl.scrollTop > chatEdge()) {
       // 滑下来了，这一轮重新装填：**一次靠近只放一屏**。
       // 不装填的话，万一位置校正没顶住（iOS 顶上那截橡皮筋会把人拽回 0），
@@ -4054,6 +4252,7 @@
       chatGrowArmed = true;
       return;
     }
+    if (owned) return;
     if (!chatGrowArmed) return;
     chatGrowArmed = false;
     growChat();
@@ -4076,13 +4275,86 @@
    * 矩形来对齐——重画是整块换 innerHTML，那条消息已经不在文档里了，量不着。
    */
   function growChat() {
+    // 本地手里还压着更早的轮：纯本地放一屏，瞬时（老行为）。
+    if (chatHiddenTurns > 0) {
+      var fromBottom = mainEl.scrollHeight - mainEl.scrollTop;
+      // 一次多放 3 轮（2026-11-27 之前是 40 条，单位见 CHAT_TURNS 那段）。
+      chatTurns += CHAT_TURNS;
+      // 完整模式要走 render() 总分发：直画 renderChat 会把后面那块轨迹区抹掉。
+      // （位置补偿和聊天同一套：轨迹区每次重画高度不变，底部那一截没动。）
+      if (state.mode === 'full') render();
+      else renderChat();
+      mainEl.scrollTop = mainEl.scrollHeight - fromBottom;
+      // 这一下也是自己滚的（见 chatTopOwned）：不记的话，紧接着那个滚动事件会被当成
+      // 「用户滑到顶了」，一次手势就能连着放好几屏。
+      chatTopOwned = mainEl.scrollTop;
+      return;
+    }
+    // 本地翻完了、服务端说前面还有：回头取 3 轮（见 fetchOlderChat）。
+    if (state.historyHasMore) fetchOlderChat();
+  }
+
+  /** 同一条记录的稳定身份：把取回来的更早那段拼进去时靠它去重（角色 + 时间戳 + 轮号）。 */
+  function chatKey(m) {
+    return (m.role || '') + '|' + (m.timestamp || 0) + '|'
+      + (m.turn === undefined || m.turn === null ? '' : m.turn);
+  }
+
+  /**
+   * 往服务端要更早的 3 轮（2026-11-27）。
+   *
+   * 为什么要这条：`state` 快照现在只推最近几轮（见 store.js 的 turnWindowOf），
+   * 更早的在插件手里、按需给。**取的时候要说一句「正在取」**——经隧道的时候这一下
+   * 不是瞬时的，不说就跟卡住了一样。
+   *
+   * 三条边界：
+   *   · 回来时**会话变了就丢掉**（同 historyOlder 那条理由）；
+   *   · 服务和本地重复的条目按 chatKey 去重（快照可能已经把它带过来了）；
+   *   · 一条都没取到 = 真的到顶了，把 historyHasMore 关掉，别再空转。
+   */
+  function fetchOlderChat() {
+    if (state.historyFetching || !state.historyHasMore) return;
+    var sessionAt = state.boundSessionId;
+    var beforeTurn = state.historyOldestTurn;
     var fromBottom = mainEl.scrollHeight - mainEl.scrollTop;
-    chatWindow += CHAT_PAGE;
-    // 完整模式要走 render() 总分发：直画 renderChat 会把后面那块轨迹区抹掉。
-    // （位置补偿和聊天同一套：轨迹区每次重画高度不变，底部那一截没动。）
-    if (state.mode === 'full') render();
-    else renderChat();
-    mainEl.scrollTop = mainEl.scrollHeight - fromBottom;
+    state.historyFetching = true;
+    var note = moreNoteEl();
+    if (note) note.textContent = '正在取更早的…';
+    var q = '/mini/api/history?turns=' + CHAT_TURNS
+      + (beforeTurn === null || beforeTurn === undefined
+        ? '' : '&before=' + encodeURIComponent(beforeTurn));
+    api(q).then(function (res) {
+      state.historyFetching = false;
+      if (state.boundSessionId !== sessionAt) return;
+      var got = res && Array.isArray(res.history) ? res.history : [];
+      if (res && 'hasMore' in res) state.historyHasMore = res.hasMore === true;
+      if (res && 'oldestTurn' in res) {
+        state.historyOldestTurn = res.oldestTurn === null ? null : (res.oldestTurn ?? null);
+      }
+      if (!got.length) {
+        state.historyHasMore = false;
+        renderChat();
+        toast('没有更早的记录了');
+        return;
+      }
+      var have = {};
+      var i;
+      for (i = 0; i < (state.historyOlder || []).length; i++) have[chatKey(state.historyOlder[i])] = true;
+      for (i = 0; i < (state.history || []).length; i++) have[chatKey(state.history[i])] = true;
+      var fresh = got.filter(function (m) { return !have[chatKey(m)]; });
+      state.historyOlder = fresh.concat(state.historyOlder || []);
+      state.historyOlderFor = sessionAt;
+      // 取回来的这几轮要真的露出来，所以窗口跟着长（少于 3 轮时等于全部铺开）。
+      chatTurns += CHAT_TURNS;
+      if (state.mode === 'full') render();
+      else renderChat();
+      mainEl.scrollTop = mainEl.scrollHeight - fromBottom;
+      chatTopOwned = mainEl.scrollTop;
+    }).catch(function () {
+      state.historyFetching = false;
+      renderChat();
+      toast('更早的记录没取到');
+    });
   }
 
   /**
@@ -4164,11 +4436,14 @@
       var canPin = !!line && view > 0 && (mainEl.scrollTop + desired <= maxScroll + 1);
       pinToTop(target);
       if (!stick && !canPin) mainEl.scrollTop = mainEl.scrollHeight;
+      // 自己滚的，记一笔（见 chatTopOwned 的说明）。
+      chatTopOwned = mainEl.scrollTop;
       return;
     }
     // 没有新回答的时候照旧黏底（历史重排、切会话、用户自己发指令这些），
     // 但**流式期间不跟**——那正是要停在开头的时候。
     if (stick && !liveNow) mainEl.scrollTop = mainEl.scrollHeight;
+    chatTopOwned = mainEl.scrollTop;
   }
 
   /**
@@ -4193,7 +4468,7 @@
    * 长得一样，是预期）。
    */
   function renderFull() {
-    // 换了会话，用户手动拨过的折叠开关就作废——和聊天窗 chatWindowFor 同一个道理：
+    // 换了会话，用户手动拨过的折叠开关就作废——和聊天窗 chatTurnsFor 同一个道理：
     // 两场会话的轮号会撞在一起，留在手里的开关会去拨新会话的组。
     if (trajFor !== state.boundSessionId) {
       trajFor = state.boundSessionId;
@@ -4675,6 +4950,16 @@
     // 一个过程组都没有（含轨迹读不到那条路）就兜底页尾——话必须说，位置不抢戏。
     var noteHtml = trajNoticeHtml();
     if (!groups.length) return rows.slice().concat(noteHtml ? [noteHtml] : []);
+    /**
+     * 已经加载到的最早一轮（下界）。服务端现在只推最近几轮（见 historyTurns），
+     * **比它更早的轮还没取回来**——那些轮的过程组如果走下面那条「窗口里没有这一轮
+     * 的消息 → 兜底页尾」的路，就会被一整堆塞到最新回答下面，看着像过程跑到未来去了。
+     * 所以先记一条下界，比它早的组直接不画（等用户滑上去把那一轮取回来，它自然出现）。
+     */
+    var oldestTurn = null;
+    for (var q0 = 0; q0 < list.length; q0++) {
+      if (list[q0] && typeof list[q0].turn === 'number') { oldestTurn = list[q0].turn; break; }
+    }
     var slots = [];
     for (var i = 0; i < groups.length; i++) {
       var g = groups[i];
@@ -4690,6 +4975,8 @@
         }
       }
       if (at < 0) {
+        // 比已加载的最早一轮还早：消息还没取回来（不是「这一轮没有消息」），不画。
+        if (oldestTurn !== null && typeof g.turn === 'number' && g.turn < oldestTurn) continue;
         // c/d：窗口里没有这一轮的消息——全量里有＝出窗不画；没有＝兜底页尾。
         var anywhere = false;
         for (var n = 0; n < (all || []).length; n++) {
@@ -4820,6 +5107,10 @@
     // 模型此刻的自言自语（鲸鱼娘的台词）。null = 这会儿没话说，气泡回到该姿势自己的词条。
     if ('thought' in snap) state.thought = snap.thought || null;
     if (snap.history) state.history = snap.history;
+    // 「前面还有更早的轮」+ 这次给到的最早轮号（服务端按轮裁过，见 store.js）。
+    // 老服务端不发这两个字段 → 保持 false，页面就只在本地有的那几段里翻，行为不变。
+    if ('historyHasMore' in snap) state.historyHasMore = snap.historyHasMore === true;
+    if ('historyOldestTurn' in snap) state.historyOldestTurn = snap.historyOldestTurn === null ? null : (snap.historyOldestTurn ?? null);
     // 「服务端正去读这个会话的完整记录」。点开一个没看过的会话时，那一串要读一会儿
     // 才补上来（最大的那条日志 20 MB、约半秒），这期间不能装作「这个会话是空的」。
     state.historyLoading = snap.historyLoading === true;
@@ -4843,6 +5134,19 @@
         state.trajectory = [];
         state.trajectorySeq = 0;
         if (state.mode === 'full') requestTrajectory();
+      }
+      // 按需取回来的那段「更早的历史」也属于上一个会话，一起作废（同一条理由：
+      // 时间戳和轮号都会撞）。正在飞的那个请求回来时会自己发现会话变了、丢掉结果。
+      if (state.boundSessionId !== wasBound) {
+        state.historyOlder = [];
+        state.historyOlderFor = null;
+        state.historyFetching = false;
+        // 这两个字段这一帧已经按快照写过了（见上面那两行）。只有**老服务端不带它们**时
+        // 才清空——不带就说明这份快照没有「前面还有」的信息，留着上一个会话的值会骗人。
+        if (!('historyHasMore' in snap)) state.historyHasMore = false;
+        if (!('historyOldestTurn' in snap)) state.historyOldestTurn = null;
+        chatTurns = CHAT_TURNS;
+        chatTopOwned = -1;
       }
       // 换了会话，指令菜单那份缓存就作废了（指令表是每个会话一份的，这个会话没在跑
       // 时一条都读不到，见「斜杠指令」那一段）。重画一次，它自己会发现数据不属于
@@ -5990,9 +6294,31 @@
    */
   var streamSubscribed = false;
   var es = null;
+  /**
+   * 轮询兜底那几样（2026-11-27，见 connect() 末尾那段）。
+   *
+   * `lastFrameAt` 是**这条 SSE 最后一帧到达的时刻**——它是「SSE 到底有没有在送东西」的
+   * 唯一判据。有些公网通路会把整条流整段缓冲，这时 `EventSource` 仍然是 open（浏览器
+   * 不报错），只有这个时刻会一直不动。
+   */
+  var pollTimer = null;
+  var lastFrameAt = 0;
+  var pollRev = -1;
+  var stateRefreshing = false;
+  // 拉整页快照的最小间隔。`rev` 一变就拉最准，但一轮里 rev 可能每秒变好几次——
+  // 那样等于在手机上跑一个 4 KB/s 的长连接。10 秒一次既跟得上进度，又把流量压到 1/3。
+  var STATE_MIN_GAP_MS = 10000;
+  var stateFetchedAt = 0;
+  // 15 秒 > 服务端心跳的 10 秒：**只要心跳还在到，就说明这条流是通的**，一个请求都不发。
+  // 被整段缓冲时连心跳也到不了，15 秒后自动切轮询（最多再晚 3 秒一拍）。
+  var POLL_STALE_MS = 15000;
+  var POLL_FIRST_MS = 8000;
+  var POLL_EVERY_MS = 3000;
   function connect() {
     if (es) { try { es.close(); } catch (e) {} es = null; }
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (!state.entered) { showGate(); return; }
+    lastFrameAt = Date.now();
     setStatus('', '连接中…');
     // clientId 每条连接都带（订阅的 POST 靠它认出这条流）；full=1 只在「完整」模式带，
     // 服务端见到就自动把这条连接订上轨迹——断线重连沿用同一个地址，重新订上由服务端
@@ -6006,6 +6332,19 @@
     es = new EventSource('/mini/api/stream?clientId=' + encodeURIComponent(clientId)
       + (state.mode === 'full' ? '&full=1' : '')
       + (streamWanted ? '&stream=1' : ''));
+
+    // 给这条流套一层：**每一帧都记下到达时刻**。后面那个轮询兜底就靠它判断
+    // 「SSE 是不是已经不干活了」——只在外面包一层，下面那些事件处理一个字都不用改。
+    function stampFrames(source) {
+      var raw = source.addEventListener.bind(source);
+      source.addEventListener = function (name, fn) {
+        return raw(name, function (e) {
+          lastFrameAt = Date.now();
+          return fn(e);
+        });
+      };
+    }
+    stampFrames(es);
 
     es.addEventListener('open', function () {
       state.connected = true;
@@ -6239,7 +6578,32 @@
       $('askCustom').value = picked.custom || ''
       $('askBack').style.display = ask.i > 0 ? '' : 'none'
       $('askNext').textContent = ask.i === ask.questions.length - 1 ? '答好了，发回电脑' : '下一题'
+      $('askCard').classList.remove('collapsed')
       $('askCard').classList.add('on')
+      syncAskPad()
+    }
+    /**
+     * 收起答题抽屉。**三件事必须一起做**：清 `ask`、把抽屉的 on/collapsed/dragging 全摘掉、
+     * 把补给 main 的下内边距还回去。加收起态之前这三处是各写各的，只要有一处漏了，
+     * 抽屉就会以半个状态挂在屏幕上（看着还在、其实已经没题了）。
+     */
+    function closeAskCard() {
+      ask = null
+      $('askCard').classList.remove('on', 'collapsed', 'dragging')
+      $('askCard').style.transform = ''
+      mainEl.style.paddingBottom = ''
+    }
+    /**
+     * 让 `main` 给抽屉让出**正好那么高**的下内边距。
+     *
+     * 原来写死 `calc(72vh + 16px)`：卡片矮的时候底下多一大块空白，卡片高的时候又不够。
+     * 现在按卡片实际高度算（收起时只有 50 多像素），滚到末尾时最后一条消息正好落在卡片上沿。
+     */
+    function syncAskPad() {
+      var card = $('askCard')
+      var on = card && card.classList.contains('on')
+      var h = on ? Math.round(card.getBoundingClientRect().height) : 0
+      mainEl.style.paddingBottom = h > 0 ? (h + 16) + 'px' : ''
     }
     $('askOwn').addEventListener('click', function () {
       if (!ask) return
@@ -6286,11 +6650,72 @@
           toast('没送出去，看一眼和电脑的连接，再点一次')
           return
         }
-        ask = null
-        $('askCard').classList.remove('on')
+        closeAskCard()
         if (verdict === 'late') toast('这道题已经交回电脑了，去电脑上答')
       })
     })
+    // ——— 抽屉的拖拽 / 收起 ———
+    //
+    // 手指按住上面那个把手往下拖：跟手跟到 40% 屏高，松手过 60 像素就收起（只剩把手 + 标题），
+    // 往上拖、或者点一下把手再展开。**只挂在把手上**（CSS 里给了 touch-action:none）——
+    // 题目正文里的滑动照旧是滚动，不会误拖；这一点比"整张卡都能拖"重要得多，
+    // 用户要的正是「一边拖、一边看上面的历史」。
+    function dragAskSheet() {
+      var card = $('askCard');
+      var handle = $('askHandle');
+      var startY = 0;
+      var dy = 0;
+      var dragging = false;
+      var suppressClick = false;
+      function pointOf(e) {
+        var t = e.touches && e.touches[0];
+        return t ? t.clientY : (typeof e.clientY === 'number' ? e.clientY : 0);
+      }
+      function down(e) {
+        if (!ask) return;
+        startY = pointOf(e);
+        dy = 0;
+        dragging = true;
+        card.classList.add('dragging');
+      }
+      function move(e) {
+        if (!dragging) return;
+        dy = pointOf(e) - startY;
+        var cap = window.innerHeight * 0.4;
+        var shift = Math.max(0, Math.min(dy, cap));
+        card.style.transform = shift ? 'translateY(' + shift + 'px)' : '';
+        // 拖把手的时候别让页面跟着滚：这一下必须拦。
+        if (e.cancelable) e.preventDefault();
+      }
+      function up() {
+        if (!dragging) return;
+        dragging = false;
+        card.classList.remove('dragging');
+        card.style.transform = '';
+        if (dy > 60) card.classList.add('collapsed');
+        else if (dy < -40) card.classList.remove('collapsed');
+        syncAskPad();
+
+        // 拖过就不当成点击：否则松手后面那次 click 会把它又翻回去。
+        if (Math.abs(dy) > 10) suppressClick = true;
+      }
+      handle.addEventListener('touchstart', down, { passive: true });
+      handle.addEventListener('touchmove', move, { passive: false });
+      handle.addEventListener('touchend', up);
+      handle.addEventListener('touchcancel', up);
+      // 没有触摸事件时（电脑上开这个页面、或者浏览器不给 touch）点一下也能收/展。
+      handle.addEventListener('click', function () {
+        if (!ask) return;
+        if (suppressClick) { suppressClick = false; return; }
+        card.classList.toggle('collapsed');
+        syncAskPad();
+      });
+    }
+    // 上面是函数声明，这里显式调用：**不要写成 `(function(){…})()`**——
+    // 这个文件整份不写分号，以 `(` 开头的新语句会被解析成上一句的链式调用
+    // （2026-11-27 线上事故：connect() 直接抛 TypeError，后面的监听器全没注册，
+    //  症状是"提问卡不弹、状态/心跳/轮询都不生效"）。
+    dragAskSheet();
     // ——— 命令确认（审批）———
     //
     // 电脑要做需要拍板的事时，插件推一条 `approval` 过来，点了卡上的按钮再 POST 回
@@ -6333,9 +6758,15 @@
       let payload = null
       try { payload = JSON.parse(e.data) } catch (err) { return }
       if (!payload || !payload.id || !Array.isArray(payload.questions) || !payload.questions.length) return
+      // 同一道题已经显示着（轮询兜底先把它补出来了，或者服务端重连后又补发了一遍）：
+      // **不要重建**，否则用户勾好的选项会被清掉。
+      if (ask && ask.id === payload.id) return
       ask = { id: payload.id, questions: payload.questions, i: 0, picked: {}, custom: false }
       askRender()
     });
+    // 心跳（服务端每 10 秒一帧）：**没有任何逻辑**，只为了让上面那层 stampFrames 记下一笔
+    // 「这条流还活着」。少了它，空闲时 lastFrameAt 会一直变老，轮询兜底就会白开。
+    es.addEventListener('tick', function () {});
     // 这道题在**别处**被答掉了（飞书那边回的），插件主动推一条状态过来。
     //
     // 没有这一条，卡片就干巴巴挂在屏幕上：用户在飞书里答完了，切回手机还看得见这道题，
@@ -6347,10 +6778,13 @@
       try { payload = JSON.parse(e.data) } catch (err) { return }
       if (!payload || !payload.id) return
       if (!ask || ask.id !== payload.id) return
-      ask = null
-      $('askCard').classList.remove('on')
-      // 谁答的由插件如实说（'feishu'）——猜不得，也不把「超时/断线」说成「已在别处答过」。
+      closeAskCard()
+      // 谁答的由插件如实说（'feishu' / 'pc'）——猜不得，也不把「超时/断线」说成「已在别处答过」。
       if (payload.source === 'feishu') toast('这道题已经在飞书里答过了')
+      // 电脑上先答的：插件现在把题**同时**推给手机和电脑，谁先答谁生效（见 lib/index.js
+      // 的提问链）。手机上这张卡是被别处的答案收掉的，得说一句它是怎么没的，
+      // 否则用户只会以为「卡片自己消失了」。
+      else if (payload.source === 'pc') toast('这道题已经在电脑上答过了')
     });
     es.addEventListener('approval-done', function (e) {
       let payload = null
@@ -6370,6 +6804,59 @@
       $('connHint').textContent = '已断开，正在自动重连…';
       // EventSource 自己会重连，这里不用手动 close。
     });
+
+    // ——— 轮询兜底 ———
+    //
+    // 有些公网通路（实测 quick tunnel 就是）会把整条 SSE **整段缓冲**：一条帧能压两三分钟，
+    // 手机上于是完全不弹答题卡、正文也不更新，看着就是「卡住」。这条兜底不跟它抢：
+    //   · SSE 正常时**一个请求都不发**：服务端每 10 秒有一帧 `tick`（见上面那个监听器），
+    //     所以「上一帧不到 15 秒」就当它活着；刚连上还没收到任何东西时用 8 秒这个短窗口；
+    //   · 判定为不通之后，才每 3 秒问一次 `/mini/api/ping`——只回「有没有待答的题」和一个 rev；
+    //   · rev 变了 = 这段时间错过了事件，顺手拉一次 `/mini/api/state` 把整页补齐（最多 3 秒一次）；
+    //   · 题目：有题在等而手机上没显示 → 直接把卡片弹出来；这张卡已经不在了（电脑上答了、
+    //     或者被撤了）→ 自己收起来，不留一张点不动的卡。
+    // 页面在后台（document.hidden）时一律不轮询：锁屏省电省流量，回来下一拍就补上。
+    function pollTick() {
+      if (document.hidden) return;
+      // 还没轮询过（页面刚连上）时用更短的窗口：SSE 要是一开始就不通，别让人干等 15 秒
+      // 才看见内容；正常情况下一帧 `state` 早就到了，这条判断根本走不到。
+      var limit = pollRev === -1 ? POLL_FIRST_MS : POLL_STALE_MS;
+      if (Date.now() - lastFrameAt < limit) return;
+      api('/mini/api/ping').then(function (p) {
+        if (!p || p.ok !== true) return;
+        var list = Array.isArray(p.pending) ? p.pending : [];
+        // ① 卡片已经不作数了：收起来
+        if (ask && !list.some(function (x) { return x && x.id === ask.id; })) {
+          closeAskCard();
+          toast('这道题已经不在等你答了');
+        }
+        // ② 有题在等、手机上却没显示：补出卡片
+        if (!ask) {
+          for (var i = 0; i < list.length; i++) {
+            var one = list[i];
+            if (!one || !one.id || !Array.isArray(one.questions) || !one.questions.length) continue;
+            ask = { id: one.id, questions: one.questions, i: 0, picked: {}, custom: false };
+            askRender();
+            break;
+          }
+        }
+        // ③ 进度：rev 变了就是错过了帧，拉一份整页状态补齐。**一次只挂一个**，
+        // 拉不回来就等下一拍，不叠请求。
+        if (p.rev !== pollRev && !stateRefreshing && Date.now() - stateFetchedAt > STATE_MIN_GAP_MS) {
+          stateRefreshing = true;
+          stateFetchedAt = Date.now();
+          var wantRev = p.rev;
+          api('/mini/api/state').then(function (snap) {
+            if (wantRev === pollRev) return;
+            pollRev = wantRev;
+            applySnapshot(snap);
+          }).catch(function () {}).then(function () { stateRefreshing = false; });
+        }
+      }).catch(function () {});
+    }
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    pollTimer = setInterval(pollTick, POLL_EVERY_MS);
+    pollTick();
   }
 
   // ---------------- 发送 ----------------
