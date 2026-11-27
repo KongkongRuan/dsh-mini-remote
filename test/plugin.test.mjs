@@ -4538,13 +4538,14 @@ test('B 项目路由：本机列出空名单；B 没连上时新建给明确错�
 // 边界和轨迹那条一样：没订的连接一个字节都不该收到。
 // ---------------------------------------------------------------------------
 
-test('思考帧：只推给 ?thought=1 的连接，摘要 500ms 一跳，收尾那帧带全文', async (t) => {
+test('思考帧：只推给 ?thought=1 的连接，带步号与增量，500ms 一跳，收尾那帧带全文', async (t) => {
   const p = await bootPlugin()
   t.after(p.stop)
   await bindSession(p, 'sess-1')
   const session = { id: 'sess-1', header: { id: 'sess-1' } }
   const agent = { status: 'running', session }
   const stream = p.handlers.get('agent/assistant-stream')
+  const feed = p.handlers.get('session/event')
 
   const chat = await openTraceStream(`${p.base}/mini/api/stream?token=${p.token}&thought=1&clientId=chat`)
   const full = await openTraceStream(`${p.base}/mini/api/stream?token=${p.token}&full=1&clientId=full`)
@@ -4557,28 +4558,62 @@ test('思考帧：只推给 ?thought=1 的连接，摘要 500ms 一跳，收尾�
   assert.equal(first.detail, '先看看仓库结构', '聊天模式要看到「它现在在想什么」')
   assert.equal(first.done, false, '流式那帧不是定稿')
   assert.equal(first.sessionId, 'sess-1')
+  assert.equal(first.step, 1, '每段思考带步号，页面靠它把多步分开摆')
+  assert.equal(first.delta, '先看看仓库结构', '流式发的是增量（页面自己接起来）')
 
   // 500 毫秒节流：紧接着再喂一段，这一帧不该立刻到（省的是家宽上行）。
   stream({ agent, frame: { type: 'chunk', chunk: { type: 'reasoning-delta', text: '，然后从 readme 下手' } } })
   await new Promise((resolve) => setTimeout(resolve, 120))
   assert.equal(chat.frames.filter((f) => f.name === 'thought').length, 1, '节流窗口内不追加帧')
 
-  // 过了窗口再来一段：第二帧到，摘要跟着走。
+  // 过了窗口再来一段：第二帧到，摘要跟着走，增量只带新增的那截。
   await new Promise((resolve) => setTimeout(resolve, 520))
   stream({ agent, frame: { type: 'chunk', chunk: { type: 'reasoning-delta', text: '。' } } })
   const two = await waitFrames(chat, 'thought', 2)
   assert.ok(String(two[1].detail).includes('从 readme 下手'), '摘要跟着打字走')
+  assert.ok(String(two[1].delta).includes('从 readme 下手'), '增量里是新字，不是整段重发')
+  assert.equal(two[1].step, 1, '同一步的帧共用一个号')
 
   // 思考写完（工具调用开始 = 这一段思考结束）：补一帧 done + 全文。
-  stream({ agent, frame: { type: 'chunk', chunk: { type: 'tool-call-delta', argumentsDelta: '{"a":1}' } } })
+  stream({ agent, frame: { type: 'chunk', chunk: { type: 'tool-call-delta', argumentsDelta: '{"path":"README.md"}' } } })
   const all = await waitFrames(chat, 'thought', 3)
   const done = all.filter((f) => f.done === true).pop()
   assert.ok(done, '思考结束要补一帧 done，否则页面上那一行永远停在「还在想」')
   assert.ok(String(done.text).includes('先看看仓库结构'), 'done 帧带全文')
   assert.ok(String(done.text).includes('从 readme 下手'), '全文是整段，不是最后一截')
+  assert.equal(done.step, 1, '定稿帧认的是同一段')
+
+  // —— 工具步骤（v2 加的那条帧）：聊天模式也要看到它调了什么 ——
+  feed(session, ev('tool/call', {
+    turn: 1, step: 1, callId: 'c1', name: 'read', arguments: '{"path":"README.md"}',
+  }))
+  const step1 = await waitFrames(chat, 'step', 1)
+  assert.ok(step1.length === 1, '工具调用要推一条 step 帧给聊天模式')
+  const row1 = step1[0].rows[0]
+  assert.equal(row1.id, 'c1', '行身份就是 callId（结果靠它配对）')
+  assert.equal(row1.kind, 'tool')
+  assert.equal(row1.name, 'read')
+  assert.ok(String(row1.summary).length > 0, '折叠那一行要有参数摘要')
+  assert.equal(row1.state, 'running', '还没回结果时是「在跑」')
+
+  feed(session, ev('tool/result', {
+    turn: 1, step: 1, message: { role: 'tool', toolCallId: 'c1', content: text('版本是 22') },
+  }))
+  const step2 = await waitFrames(chat, 'step', 2)
+  const row2 = step2[1].rows.find((r) => r.id === 'c1')
+  assert.ok(row2, '结果落定要按 id 补同一行，不是新开一行')
+  assert.equal(row2.state, 'ok')
+  assert.ok(String(row2.output).includes('版本是 22'), '展开后能看到命令回了什么')
+
+  // 第二段思考：步号要往后走（页面据此把两段摆成两步，而不是互相顶掉）。
+  stream({ agent, frame: { type: 'chunk', chunk: { type: 'reasoning-delta', text: '再确认一下版本' } } })
+  const later = await waitFrames(chat, 'thought', 4)
+  assert.equal(later[3].step, 2, '新的一段思考领新号')
 
   // 没订的那条：一个字节都不该收到（和轨迹那条同一个边界）。
   await new Promise((resolve) => setTimeout(resolve, 200))
   assert.equal(full.frames.filter((f) => f.name === 'thought').length, 0,
     '完整模式那条没订 thought，就不该收——那边的思考走轨迹组头')
+  assert.equal(full.frames.filter((f) => f.name === 'step').length, 0,
+    '工具步骤也只走 thought 那批连接')
 })

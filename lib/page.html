@@ -28,8 +28,11 @@
     color-scheme: dark;
     --bg: #0a0f16;
     --bg-top: #101a27;
-    /* 基准字号：设置页「字体大小」三档控制，默认 15.5px */
-    --font-base: 15.5px;
+    /* 基准字号：设置页「字体大小」三档控制，默认 15px。
+       2026-11-27 从 15.5 收到 15：聊天模式里过程清单、指令行、答案 chip 都上来了，
+       15.5 + 1.75 的行高在手机上信息密度偏低（用户实机提的「内容多了，字号该适当地收」）。
+       再小就不好读了——13px 那档留给「小」。 */
+    --font-base: 15px;
     --bg-deep: #070b11;
     --panel: #121a25;
     --panel-2: #18222f;
@@ -282,7 +285,7 @@
 
   #reply {
     white-space: pre-wrap; word-break: break-word;
-    font-size: 16px; line-height: 1.75;
+    font-size: 16px; line-height: 1.7;
   }
   #reply a { color: var(--ice); }
   .placeholder { color: var(--muted); font-size: 15px; text-align: center; line-height: 1.9; }
@@ -299,12 +302,12 @@
      两种气泡都要，只改一边的话，短回复那边还是会露出大方块，看着像坏了。 */
   .bubble {
     width: fit-content;
-    max-width: 86%; padding: 10px 13px; border-radius: var(--r);
-    /* 18px，和 .said 的下边距一致。原来是 10px，用户 2026-09-22 实机提「指令气泡和
-       回答正文第一行之间贴得太紧」——10px 是「同一条消息内部」的距离，
+    max-width: 86%; padding: 9px 12px; border-radius: var(--r);
+    /* 16px，和 .said 的下边距一致（2026-11-27 从 18 收到 16：同屏多了过程清单和
+       指令行，块间距再留 18 就显得散）。10px 是「同一条消息内部」的距离，
        而这里跨的是「我说的话」和「它答的话」，是更大的一个断点，该给更多。 */
-    margin-bottom: 18px; white-space: pre-wrap; word-break: break-word;
-    font-size: var(--font-base); line-height: 1.7;
+    margin-bottom: 16px; white-space: pre-wrap; word-break: break-word;
+    font-size: var(--font-base); line-height: 1.65;
   }
   .bubble.user { margin-left: auto; background: var(--panel-2); border: 1px solid var(--line); }
   .bubble.assistant { margin-right: auto; background: var(--panel); border: 1px solid var(--line); }
@@ -417,7 +420,7 @@
   .reply-foot .time { font-size: 11.5px; color: var(--muted); }
   /* 聊天模式下 AI 的回答**不套气泡**（用户要求「参考单帧模式那样」）。
      用户自己的指令仍然是气泡，一左一右、一个有框一个没框，正好分得清谁说的。 */
-  .said { margin-bottom: 18px; }
+  .said { margin-bottom: 16px; }
   /* ---------- 历史里「你答过的一道题」（2026-11-27） ----------
      答题不产生 user/message，答案落在工具结果里（见 lib/answer.js），所以它既不是
      你说的话、也不是模型答的话，是**第三样东西**：一道题的结论。
@@ -427,7 +430,7 @@
     width: fit-content; max-width: 100%;
     margin: 0 0 14px; padding: 5px 11px;
     border: 1px dashed var(--line); border-radius: var(--r);
-    background: var(--panel); font-size: 13px; line-height: 1.6;
+    background: var(--panel); font-size: 12.5px; line-height: 1.55;
   }
   .ans .ans-row { display: block; }
   /* 多题时两行贴在一起会连成一句话（真机截图看过），隔开一点。 */
@@ -435,29 +438,49 @@
   .ans .ans-q { color: var(--muted); margin-right: 6px; }
   .ans .ans-v { font-weight: 600; word-break: break-word; }
   .ans .ans-t { display: block; margin-top: 2px; font-size: 11px; color: var(--muted); }
-  /* ---------- 「这段思考」（2026-11-27，聊天模式） ----------
-     和 .cmd / .ans 同一族：不套气泡、细线起头。区别是它**可以展开**：
-     流式那一条（.live）只有一行摘要；落定的那条（.done）是原生 <details>，
-     点开看全文（服务端在收尾帧里补的那份，已截到 4000 字）。 */
-  .thought {
-    margin: 0 0 10px; padding: 5px 11px;
+  /* ---------- 「这一轮的过程」（2026-11-27 v2：思考 + 工具步骤） ----------
+     三层折叠，照 DSH 桌面端的 turn-process：
+       ① 整组默认收起，标题行是「过程 · N 步 · <最后一步的首行>」；
+       ② 展开后每一步一行（思考行 = 思考 · 首行；工具行 = 运行命令 · 参数摘要）；
+       ③ 再展开才是正文：思考的全文 / 工具的结果。
+     为什么改成这样：v1 只有一个槽、只显示一行摘要，第二段思考一到第一段就被顶掉
+     （用户实机报的「第一条还没看完就没了」）。和 .cmd / .ans 同一族：不套气泡、细线起头。 */
+  .pgroup {
+    margin: 0 0 10px; padding: 3px 10px 3px 11px;
     border-left: 2px solid var(--line); border-radius: 0 var(--r) var(--r) 0;
-    background: var(--panel-2); font-size: 13px; line-height: 1.6; color: var(--muted);
+    background: var(--panel-2); font-size: 12.5px; line-height: 1.55; color: var(--muted);
   }
-  .thought .thought-k {
-    font-size: 11.5px; margin-right: 6px; letter-spacing: .04em; opacity: .85;
+  .pgroup > summary {
+    display: flex; align-items: baseline; gap: 4px; cursor: pointer;
+    list-style: none; padding: 2px 0;
   }
-  .thought .thought-s { color: inherit; }
-  .thought.live .thought-k { color: var(--ice); opacity: 1; }
-  .thought.done summary { cursor: pointer; list-style: none; display: flex; align-items: baseline; gap: 2px; }
-  .thought.done summary::-webkit-details-marker { display: none; }
-  .thought.done summary::before { content: '▸'; font-size: 10px; opacity: .7; margin-right: 4px; flex: none; }
-  .thought.done[open] summary::before { content: '▾'; }
-  .thought.done summary .thought-s { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .thought-body {
-    margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line);
-    white-space: pre-wrap; word-break: break-word; max-height: 40vh; overflow: auto;
+  .pgroup > summary::-webkit-details-marker { display: none; }
+  .pgroup > summary::before { content: '▸'; font-size: 10px; opacity: .7; flex: none; }
+  .pgroup[open] > summary::before { content: '▾'; }
+  .pgroup-k { font-size: 11.5px; letter-spacing: .04em; opacity: .85; flex: none; }
+  .pgroup-n { font-size: 10.5px; opacity: .6; flex: none; }
+  .pgroup-s, .pstep-s { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .psteps { list-style: none; margin: 1px 0 2px; padding: 0; }
+  .pstep > summary {
+    display: flex; align-items: baseline; gap: 4px; cursor: pointer;
+    list-style: none; padding: 1px 4px 1px 8px; border-radius: var(--r);
   }
+  .pstep > summary::-webkit-details-marker { display: none; }
+  .pstep > summary::before { content: '▸'; font-size: 9px; opacity: .5; flex: none; }
+  .pstep[open] > summary::before { content: '▾'; }
+  .pstep-i { flex: none; width: 13px; height: 13px; transform: translateY(2px); opacity: .75; }
+  .pstep-i svg { width: 13px; height: 13px; display: block; }
+  .pstep-k { flex: none; }
+  /* 正在想 / 正在跑的那一步提亮一档：收着也能看出「还在这儿」 */
+  .pstep.live > .pstep-k, .pstep.running > .pstep-k { color: var(--ice); opacity: 1; }
+  .pstep.live > .pstep-s, .pstep.running > .pstep-s { color: var(--fg); }
+  .pstep.bad > .pstep-k { color: var(--warn, #e2725b); }
+  .pstep-body {
+    margin: 1px 0 3px 21px; padding: 3px 0 3px 9px;
+    border-left: 1px dashed var(--line);
+    white-space: pre-wrap; word-break: break-word; max-height: 32vh; overflow: auto;
+  }
+  .pstep-body.empty { display: none; }
   /* ---------- 历史里的一条指令（会话做的一个动作，不是谁说的话） ----------
      和上面两种气泡都刻意画得不同：不套框、不给复制按钮，只用左边一条细线起头。
      它是**系统动作**——长得像一句话，就会被当成 AI 的回答去读，而它根本不是回答。 */
@@ -466,7 +489,7 @@
     width: fit-content; max-width: 100%;
     margin: 0 0 14px; padding: 4px 10px 4px 9px;
     border-left: 2px solid var(--line); border-radius: 0 var(--r) var(--r) 0;
-    background: var(--panel-2); font-size: 13px; line-height: 1.5;
+    background: var(--panel-2); font-size: 12.5px; line-height: 1.5;
   }
   /* 名字加参数排一行，太长就省略——它是「做了哪件事」的标签，不是正文。
      收缩权重给到 10：位置要让给下面那条结果。挪不开的时候它先让到 0
@@ -4121,54 +4144,264 @@
   }
 
   /**
-   * 「这段思考」那一行（2026-11-27，聊天模式要看的那个「思考过程」）。
+   * 「这一轮的过程」：思考 + 工具步骤（2026-11-27 v2，聊天模式）。
    *
-   * 两种长相，共用一套样式：
-   *   · 流式（live）：一个 `<div>`，只露「思考 · 摘要」；下一帧到了**原地改字**
-   *     （见 paintThoughtLive）——正文在流的时候每帧重画整串会卡，这里不能重画；
-   *   · 落定（done）：`<details>` 原生折叠，摘要还是那一行，点开看全文。
-   * 用 `<details>` 不自己写开关：键盘、读屏都认，也不用加脚本（同 noticeBlock 的做法）。
+   * 三层折叠，和 DSH 桌面端的 turn-process 一个心思：
+   *   ① 整组默认收起，标题行 =「过程 · N 步 · <最后一步的首行>」；
+   *   ② 展开后每一步一行（思考行「思考 · 首行」、工具行「运行命令 · 参数摘要」）；
+   *   ③ 再展开才是正文（思考全文 / 工具结果）。
    *
-   * 摘要取的是**最后一段**（和完整模式轨迹组头同一份 `detail`）：服务端压成一行 ≤160 字。
+   * 为什么推倒 v1：v1 只有一个槽、只显示最后一行摘要，第二段思考一到第一段就被顶掉
+   * （用户实机报的「第一条还没看完就没了」）。数据由服务端两条帧喂：
+   * `thought`（带 step 号 + 增量 + 收尾全文）和 `step`（工具行）。
+   *
+   * 为什么不用「整串重画」：用户在读上面的内容时，500 毫秒一次重画会把滚动位置顶走。
+   * 这里只动变化的那个节点（见 paintProcessLive）。
    */
-  function thoughtSummaryLine(detail) {
-    var s = String(detail || '').replace(/\s+/g, ' ').trim();
-    return s.length > 80 ? s.slice(0, 79) + '…' : s;
+  var THOUGHT_KEEP = 60;          // 一轮最多记几步（长回合别把页面撑爆）
+  var THOUGHT_TEXT_MAX = 4000;    // 单步思考正文上限（和服务端 TRAJECTORY_MAX_CHARS 对齐）
+  var thoughtGroupOpen = false;   // 整组展开过没有（默认折叠）
+  var thoughtStepOpen = {};       // 单步展开状态：{ 步骤 key: true }
+
+  /** 步骤身份：思考 `t<号>`、工具 `x<id>`——两条帧各来各的，靠这个合成一列。 */
+  function stepKey(step) {
+    return (step.kind === 'tool' ? 'x' : 't') + step.id;
   }
 
-  function thoughtLiveHtml() {
-    var t = state.thinking;
-    if (!t) return '';
-    // 已经定稿、但回答还没到（`reply` 落地前那一两秒）：先在这儿折叠着显示，
-    // 别让那一行凭空消失再出现——真机上就是一闪。
-    if (t.done) return thoughtDoneHtml(t);
-    return '<div class="thought live" data-thought-live="1">'
-      + '<span class="thought-k">思考</span>'
-      + '<span class="thought-s">' + escapeHtml(thoughtSummaryLine(t.detail)) + '</span></div>';
+  /** 一行的标题：工具是工具名，思考是正文首行（压成一行，80 字）。 */
+  function stepTitle(step) {
+    if (step.kind === 'tool') return trajToolTitle(step.name);
+    var raw = String(step.text || step.detail || '');
+    var lines = raw.split(/\r?\n/);
+    for (var i = 0; i < lines.length; i++) {
+      var s = lines[i].replace(/\s+/g, ' ').trim();
+      if (s) return s.length > 80 ? s.slice(0, 79) + '…' : s;
+    }
+    return '正在思考';
   }
 
-  function thoughtDoneHtml(t) {
-    var body = String(t && t.text ? t.text : '').trim();
-    if (!body) return '';
-    var head = thoughtSummaryLine(t.detail || body.split('\n')[0]);
-    return '<details class="thought done"><summary>'
-      + '<span class="thought-k">思考</span>'
-      + '<span class="thought-s">' + escapeHtml(head) + '</span></summary>'
-      + '<div class="thought-body">' + escapeHtml(body) + '</div></details>';
+  /** 标题行后半截：思考是首行摘录，工具是参数摘要（服务端压过，≤200 字）。 */
+  function stepSubline(step) {
+    if (step.kind === 'tool') return step.summary ? '· ' + step.summary : '';
+    return '· ' + stepTitle(step);
+  }
+
+  /** 展开后看的东西：思考全文 / 工具结果（服务端已按 800 字截过）。 */
+  function stepBodyText(step) {
+    return step.kind === 'tool' ? String(step.output || '') : String(step.text || step.detail || '');
+  }
+
+  function stepRowHtml(step) {
+    var key = stepKey(step);
+    var cls = 'pstep';
+    if (step.kind === 'tool') {
+      if (step.state === 'running') cls += ' running';
+      else if (step.state === 'error') cls += ' bad';
+    } else if (!step.done) cls += ' live';
+    var open = thoughtStepOpen[key] ? ' open' : '';
+    var body = stepBodyText(step);
+    var icon = trajIco(step.kind === 'tool' ? trajActivity(step.name) : 'thinking');
+    return '<li><details class="' + cls + '"' + open + ' data-pstep="' + escapeHtml(key) + '">'
+      + '<summary><span class="pstep-i">' + icon + '</span>'
+      + '<span class="pstep-k">' + escapeHtml(step.kind === 'tool' ? stepTitle(step) : '思考') + '</span>'
+      + '<span class="pstep-s">' + escapeHtml(stepSubline(step)) + '</span></summary>'
+      + '<div class="pstep-body' + (body ? '' : ' empty') + '">' + escapeHtml(body) + '</div>'
+      + '</details></li>';
+  }
+
+  /** 一组里有没有工具步：有就叫「过程」，只有思考就叫「思考」（抬头别骗人）。 */
+  function stepsHasTool(steps) {
+    for (var i = 0; i < steps.length; i++) if (steps[i].kind === 'tool') return true;
+    return false;
+  }
+
+  /** 整组：一行组头 + 每步一行。`list` 是 { steps: [...] }。 */
+  function processHtml(list) {
+    var steps = (list && list.steps) || [];
+    if (!steps.length) return '';
+    var last = steps[steps.length - 1];
+    var html = '<details class="pgroup"' + (thoughtGroupOpen ? ' open' : '') + ' data-pgroup="1">'
+      + '<summary><span class="pgroup-k">' + (stepsHasTool(steps) ? '过程' : '思考') + '</span>'
+      + '<span class="pgroup-n">' + steps.length + ' 步</span>'
+      + '<span class="pgroup-s">· ' + escapeHtml(stepTitle(last)) + '</span></summary>'
+      + '<ol class="psteps">';
+    for (var j = 0; j < steps.length; j++) html += stepRowHtml(steps[j]);
+    return html + '</ol></details>';
+  }
+
+  /** 回答还没落定时，过程清单挂在 live 区（在回答之前）。 */
+  function processLiveHtml() {
+    return processHtml(state.thinking);
   }
 
   /**
-   * 流式那一下：**只改那一行的字**，不重画整串。
+   * 流式那一下：**只动变化的节点**，不重画整串。
    *
-   * 找不到那块（比如刚切会话、刚开一轮）才整画一次——一次，不是每帧。
+   * 三种变化：新的一步（追加一行）、当前这一步的字（改标题 / 展开时才改正文）、
+   * 工具结果落定（换状态、补正文）。找不到组（刚切会话、刚开一轮）才整画一次。
+   *
+   * 滚动：**只有本来就在底部**才跟着走（见 atBottom）——用户往上翻看历史时，
+   * 500 毫秒一次的思考帧不该把他拽回来。
    */
-  function paintThoughtLive() {
+  function paintProcessLive() {
     var t = state.thinking;
-    if (!t || t.done) return;
-    var el = replyEl.querySelector ? replyEl.querySelector('[data-thought-live]') : null;
-    if (!el) { render(); return }
-    var s = el.querySelector ? el.querySelector('.thought-s') : null;
-    if (s) s.textContent = thoughtSummaryLine(t.detail);
+    if (!t || !t.steps || !t.steps.length) return;
+    // 只有聊天模式画这一块（别的模式没有落点；切过去但连接还没重连时别再整屏重画）。
+    if (state.mode !== 'chat') return;
+    var group = replyEl.querySelector ? replyEl.querySelector('[data-pgroup]') : null;
+    if (!group) { render(); return }
+    var list = group.querySelector ? group.querySelector('.psteps') : null;
+    if (!list) return;
+    var stick = atBottom();
+    for (var i = 0; i < t.steps.length; i++) {
+      var step = t.steps[i];
+      var key = stepKey(step);
+      var node = list.querySelector ? list.querySelector('[data-pstep="' + key + '"]') : null;
+      if (!node) {
+        list.insertAdjacentHTML('beforeend', stepRowHtml(step));
+        continue;
+      }
+      if (node.classList) {
+        node.classList.toggle('live', step.kind !== 'tool' && !step.done);
+        node.classList.toggle('running', step.kind === 'tool' && step.state === 'running');
+        node.classList.toggle('bad', step.kind === 'tool' && step.state === 'error');
+      }
+      var sub = node.querySelector ? node.querySelector('.pstep-s') : null;
+      if (sub) sub.textContent = stepSubline(step);
+      // 收着的那一步看不见正文，改它就是白花 CPU（长思考时每 500ms 一次）。
+      if (node.open) {
+        var bodyEl = node.querySelector ? node.querySelector('.pstep-body') : null;
+        if (bodyEl) {
+          var text = stepBodyText(step);
+          bodyEl.textContent = text;
+          bodyEl.classList.toggle('empty', !text);
+        }
+      }
+    }
+    var nEl = group.querySelector ? group.querySelector('.pgroup-n') : null;
+    if (nEl) nEl.textContent = t.steps.length + ' 步';
+    // 抬头跟着「有没有工具步」变：先只有思考、后面才调工具的那一组，不更新就还写着「思考」。
+    var kEl = group.querySelector ? group.querySelector('.pgroup-k') : null;
+    if (kEl) kEl.textContent = stepsHasTool(t.steps) ? '过程' : '思考';
+    var pEl = group.querySelector ? group.querySelector('.pgroup-s') : null;
+    if (pEl) pEl.textContent = '· ' + stepTitle(t.steps[t.steps.length - 1]);
+    if (stick) mainEl.scrollTop = mainEl.scrollHeight;
+  }
+
+  /** 按 key 找回那一步（流式那份和各条回答挂着的都要找）。 */
+  function stepByKey(key) {
+    var boxes = [];
+    if (state.thinking) boxes.push(state.thinking);
+    var ts = Object.keys(state.thoughts || {});
+    for (var i = 0; i < ts.length; i++) boxes.push(state.thoughts[ts[i]]);
+    for (var b = 0; b < boxes.length; b++) {
+      var steps = boxes[b] && boxes[b].steps;
+      if (!steps) continue;
+      for (var j = 0; j < steps.length; j++) if (stepKey(steps[j]) === key) return steps[j];
+    }
+    return null;
+  }
+
+  /** 展开状态要跨重绘记住：原生 <details> 重画一次就回默认折叠。 */
+  function onProcessToggle(e) {
+    var el = e.target;
+    if (!el || !el.classList) return;
+    if (el.classList.contains('pgroup')) {
+      thoughtGroupOpen = el.open === true;
+      return;
+    }
+    if (!el.classList.contains('pstep')) return;
+    var key = el.getAttribute('data-pstep');
+    if (!key) return;
+    thoughtStepOpen[key] = el.open === true;
+    // **刚展开这一步时把正文补上**：收着的时候 paintProcessLive 故意不写正文
+    // （看不见还改它是白花 CPU），所以这里得补一次，否则点开是空的。
+    if (!el.open) return;
+    var step = stepByKey(key);
+    var bodyEl = el.querySelector ? el.querySelector('.pstep-body') : null;
+    if (!step || !bodyEl) return;
+    var text = stepBodyText(step);
+    bodyEl.textContent = text;
+    bodyEl.classList.toggle('empty', !text);
+  }
+
+  /** 拿到（或建出）本轮的过程清单。 */
+  function processSteps() {
+    if (!state.thinking) state.thinking = { steps: [], at: 0 };
+    return state.thinking;
+  }
+
+  function pushProcessStep(step) {
+    var box = processSteps();
+    box.steps.push(step);
+    while (box.steps.length > THOUGHT_KEEP) box.steps.shift();
+    box.at = Date.now();
+    return step;
+  }
+
+  /**
+   * 一段思考的帧：`{ step, delta?, detail, done, text? }`。
+   *
+   * `step` 是服务端给的步号（会话内递增）。号往回走了 = 上一轮没等到回答就又想了
+   * （被打断的那一轮），这时把旧清单作废，别把两轮混成一列。
+   */
+  function applyThoughtFrame(frame) {
+    var id = typeof frame.step === 'number' ? frame.step : 1;
+    var box = processSteps();
+    var step = null;
+    var lastId = 0;
+    for (var i = 0; i < box.steps.length; i++) {
+      if (box.steps[i].kind !== 'think') continue;
+      if (box.steps[i].id > lastId) lastId = box.steps[i].id;
+      if (box.steps[i].id === id) step = box.steps[i];
+    }
+    if (!step && id <= lastId) {
+      state.thinking = null;
+      box = processSteps();
+    }
+    if (!step) step = pushProcessStep({ kind: 'think', id: id, text: '', detail: '', done: false });
+    if (frame.done) {
+      step.done = true;
+      if (typeof frame.text === 'string' && frame.text) step.text = frame.text;
+    } else if (typeof frame.delta === 'string' && frame.delta) {
+      step.text = (step.text + frame.delta).slice(0, THOUGHT_TEXT_MAX);
+    }
+    if (frame.detail) step.detail = frame.detail;
+    box.at = Date.now();
+    paintProcessLive();
+  }
+
+  /**
+   * 工具步骤的帧：`{ rows: [{ id, kind:'tool', name, summary, state, output }] }`。
+   * 同一 id 后到的帧是**补丁**（结果落定），按 id 就地改那一行。
+   */
+  function applyStepRows(rows) {
+    var box = processSteps();
+    var touched = false;
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      if (!row || !row.id) continue;
+      var step = null;
+      for (var j = 0; j < box.steps.length; j++) {
+        if (box.steps[j].kind === 'tool' && box.steps[j].id === row.id) { step = box.steps[j]; break; }
+      }
+      if (!step) {
+        step = pushProcessStep({
+          kind: 'tool', id: row.id, name: row.name || '', summary: row.summary || '',
+          state: row.state || 'running', output: row.output || '',
+        });
+      } else {
+        if (row.name) step.name = row.name;
+        if (typeof row.summary === 'string') step.summary = row.summary;
+        if (row.state) step.state = row.state;
+        if (row.output) step.output = row.output;
+      }
+      touched = true;
+    }
+    if (touched) {
+      box.at = Date.now();
+      paintProcessLive();
+    }
   }
 
   /**
@@ -4305,10 +4538,10 @@
     var rows = [];
     for (var qi = 0; qi < list.length; qi++) {
       var qm = list[qi];
-      // 思考的定稿挂在**它那一条回答**前面（2026-11-27）：按回答的 timestamp 对号，
-      // 所以翻页、重画、切回来都不会错位。流式那一份还在 live 区（见 thoughtLiveHtml）。
+      // 过程清单的定稿挂在**它那一条回答**前面（2026-11-27）：按回答的 timestamp 对号，
+      // 所以翻页、重画、切回来都不会错位。流式那一份还在 live 区（见 processLiveHtml）。
       if (qm && qm.role === 'assistant' && state.thoughts && state.thoughts[qm.timestamp]) {
-        var tb = thoughtDoneHtml(state.thoughts[qm.timestamp]);
+        var tb = processHtml(state.thoughts[qm.timestamp]);
         if (tb) rows.push(tb);
       }
       rows.push(chatMsgHtml(qm));
@@ -4632,9 +4865,10 @@
     // 流式那段（live）接在所有行（含穿插的过程组）之后：过程在回答之前，
     // 正在流的半句就是「回答」那个位置（10.3-1）。
     //
-    // 聊天模式多一段「正在想的那一行」（2026-11-27）：排在 live 前面——思考在回答之前。
-    // 完整模式不放：那边的轨迹组头本来就有这一段，放两遍是重复。
-    if (state.mode === 'chat') html += thoughtLiveHtml();
+    // 聊天模式多一块「这一轮的过程」（2026-11-27 v2：思考 + 工具步骤，整组默认折叠）：
+    // 排在 live 前面——过程在回答之前。完整模式不放：那边的轨迹组本来就有这一段，
+    // 放两遍是重复。
+    if (state.mode === 'chat') html += processLiveHtml();
     if (liveHtml) html += liveHtml;
     return built.moreNote + html;
   }
@@ -5250,6 +5484,9 @@
         // 思考是「这个会话这一段回答」的，换了会话立刻作废（同 historyOlder 的理由）。
         state.thinking = null;
         state.thoughts = Object.create(null);
+        // 展开状态是按步骤 key 记的，换会话后 key 可能撞上（步号从 1 重数），一起清掉。
+        thoughtGroupOpen = false;
+        thoughtStepOpen = {};
         // 这两个字段这一帧已经按快照写过了（见上面那两行）。只有**老服务端不带它们**时
         // 才清空——不带就说明这份快照没有「前面还有」的信息，留着上一个会话的值会骗人。
         if (!('historyHasMore' in snap)) state.historyHasMore = false;
@@ -6534,28 +6771,26 @@
       render();
     });
     /**
-     * 聊天模式的思考（2026-11-27，只有 `?thought=1` 那条连接会收到）。
+     * 聊天模式的过程清单（2026-11-27 v2，只有 `?thought=1` 那条连接会收到）。
      *
-     * 两种帧：
-     *   · `done:false` → 一行摘要，**原地改字**（见 paintThoughtLive），不重画整串；
-     *   · `done:true`  → 这段思考写完了，带全文；先当「未落定」放着（live 区一个可折叠的
-     *     方块），等 `reply` 到了再挂到那条回答上（就地写在 reply 监听里）。
-     * 换了会话就别收：这段属于上一个会话（和 trajectory-live 同一个口径）。
+     * 两条帧，落到同一列里（见 applyThoughtFrame / applyStepRows）：
+     *   · `thought`：一段思考。`step` 是步号，`delta` 是新增的字，`done:true` 带全文；
+     *   · `step`   ：工具行（运行命令 / 读取 / 编辑…），同一个 id 后到的是结果补丁。
+     * 换了会话就别收：这些属于上一个会话（和 trajectory-live 同一个口径）。
      */
     es.addEventListener('thought', function (e) {
       var frame;
       try { frame = JSON.parse(e.data); } catch (err) { return; }
       if (!frame) return;
       if (frame.sessionId && state.boundSessionId && frame.sessionId !== state.boundSessionId) return;
-      if (frame.done) {
-        var text = typeof frame.text === 'string' ? frame.text : '';
-        if (!text) { state.thinking = null; render(); return; }
-        state.thinking = { detail: frame.detail || '', text: text, done: true, at: Date.now() };
-        render();
-        return;
-      }
-      state.thinking = { detail: frame.detail || '', text: '', done: false, at: Date.now() };
-      paintThoughtLive();
+      applyThoughtFrame(frame);
+    });
+    es.addEventListener('step', function (e) {
+      var frame;
+      try { frame = JSON.parse(e.data); } catch (err) { return; }
+      if (!frame || !Array.isArray(frame.rows)) return;
+      if (frame.sessionId && state.boundSessionId && frame.sessionId !== state.boundSessionId) return;
+      applyStepRows(frame.rows);
     });
     es.addEventListener('navigation-title', function (e) {
       var payload;
@@ -6650,14 +6885,16 @@
       state.live = '';
       state.liveTool = null;
       state.streamReceived = false;
-      // 这一段思考从此**挂到这条回答上**（2026-11-27）：之后翻页、重画都跟着它走。
+      // 这一轮的过程（思考 + 工具步骤）从此**挂到这条回答上**（2026-11-27 v2）：
+      // 之后翻页、重画都跟着它走。**不要求最后一步已 done**——被打断的那一轮也该留住
+      // 已经看到的过程，不然屏幕上的清单会凭空消失。
       // **就地写，不抽成函数**：这段监听被 page.test.mjs 的 feedReply 单独抠出来跑，
       // 抽出去的那个函数不在切片里，一跑就是 ReferenceError（这一条踩过）。
       var think = state.thinking;
-      if (think && think.done && payload.timestamp) {
-        state.thoughts[payload.timestamp] = { detail: think.detail || '', text: think.text || '' };
+      if (think && think.steps && think.steps.length && payload.timestamp) {
+        state.thoughts[payload.timestamp] = { steps: think.steps.slice() };
         state.thinking = null;
-        // 只留最近 8 条：再往前的思考本来也看不到了（服务端重放里没有 reasoning）。
+        // 只留最近 8 条：再往前的过程本来也看不到了（服务端重放里没有 reasoning）。
         var thinkKeys = Object.keys(state.thoughts);
         while (thinkKeys.length > 8) {
           delete state.thoughts[thinkKeys[0]];
@@ -8300,8 +8537,10 @@
   applyTheme();   // 补上首屏那次没做的一件事：把状态栏颜色对齐
 
   // ---------------- 字体大小（小 / 标准 / 大） ----------------
+  // 2026-11-27：三档一起往下收一档（15.5 → 15、13 → 12.5），大档不动。
+  // 理由见 :root 的说明——同屏多了过程清单和指令行，密度该跟上；再小就不好读了。
   function applyFontSize() {
-    var sizes = { small: '13px', normal: '15.5px', large: '18px' };
+    var sizes = { small: '12.5px', normal: '15px', large: '18px' };
     document.documentElement.style.setProperty('--font-base', sizes[state.fontSize] || sizes.normal);
   }
   Array.prototype.forEach.call($('segFont').children, function (btn) {
@@ -8313,6 +8552,11 @@
     });
   });
   applyFontSize();  // 首屏应用
+
+  // 过程清单的展开状态要跨重绘记住（原生 <details> 重画一次就回默认折叠）。
+  // 绑在顶层而不是 bindTraj 里：`toggle` 不冒泡，捕获阶段收得到；而且 bindTraj
+  // 被 page.test.mjs 的切片单独抠出来跑，里面有切片外的引用就是一发 ReferenceError。
+  replyEl.addEventListener('toggle', onProcessToggle, true);
 
   function syncSeg() {
     Array.prototype.forEach.call($('segMode').children, function (b) {
