@@ -497,11 +497,12 @@
   .ans .ans-q { color: var(--muted); margin-right: 6px; }
   .ans .ans-v { font-weight: 600; word-break: break-word; }
   .ans .ans-t { display: block; margin-top: 2px; font-size: 11px; color: var(--muted); }
-  /* ---------- 「这一轮的过程」（2026-11-27 v2：思考 + 工具步骤） ----------
+  /* ---------- 「这一轮的过程」（2026-11-27 v2：思考 + 工具步骤 + 旁白） ----------
      三层折叠，照 DSH 桌面端的 turn-process：
        ① 整组默认收起，标题行是「过程 · N 步 · <最后一步的首行>」；
        ② 展开后每一步一行（思考行 = 思考 · 首行；工具行 = 运行命令 · 参数摘要）；
        ③ 再展开才是正文：思考的全文 / 工具的结果。
+     旁白（2026-11-27 晚）是例外：它就是一段正文，没有 summary、点不开（见 .pstep-say）。
      为什么改成这样：v1 只有一个槽、只显示一行摘要，第二段思考一到第一段就被顶掉
      （用户实机报的「第一条还没看完就没了」）。和 .cmd / .ans 同一族：不套气泡、细线起头。 */
   .pgroup {
@@ -540,6 +541,23 @@
     white-space: pre-wrap; word-break: break-word; max-height: 32vh; overflow: auto;
   }
   .pstep-body.empty { display: none; }
+  /* 旁白（2026-11-27 晚）：模型对你说的一句话。照 PC 是**过程里的一段正文**——
+     黑色、不套框、不折叠（点不开，也没有图标）。和思考行刻意分开：灰的、可展开的
+     是「它想什么」，黑的是「它对你说什么」。字号跟着这一族（12.5px，比回答小一档），
+     因为它属于过程，不属于回答。 */
+  .pstep-say {
+    margin: 2px 0 6px; padding: 0 4px 0 8px;
+    color: var(--fg); font-size: 12.5px; line-height: 1.7;
+    word-break: break-word;
+  }
+  .pstep-say p { margin: 0 0 5px; }
+  .pstep-say p:last-child { margin-bottom: 0; }
+  /* 代码底色不用 --panel-2——那是 .pgroup 自己的底色，套上去等于看不见（同鲸鱼娘气泡那条）。 */
+  .pstep-say code {
+    background: rgba(127, 127, 127, .18); border: 1px solid var(--line); border-radius: var(--r);
+    padding: .1em .35em; font-size: .88em;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
   /* ---------- 历史里的一条指令（会话做的一个动作，不是谁说的话） ----------
      和上面两种气泡都刻意画得不同：不套框、不给复制按钮，只用左边一条细线起头。
      它是**系统动作**——长得像一句话，就会被当成 AI 的回答去读，而它根本不是回答。 */

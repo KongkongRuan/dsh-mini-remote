@@ -4711,3 +4711,63 @@ test('思考帧：只推给 ?thought=1 的连接，带步号与增量，500ms �
   assert.equal(full.frames.filter((f) => f.name === 'step').length, 0,
     '工具步骤也只走 thought 那批连接')
 })
+
+// ---------------------------------------------------------------------------
+// 旁白进「过程」清单（2026-11-27 晚）
+//
+// 用户报的：手机上那句话（「重建出来的状态和会话开始前的 git diff --stat 完全一致…」）
+// 出现在鲸鱼娘的气泡里，看着像把思考流切成了两截——电脑端同一句话是过程里的一段正文。
+// 改法两条：
+//   · 旁白作为 `kind:'say'` 的一行跟着步骤帧进聊天模式（页面画成正文，见 .pstep-say）；
+//   · 长旁白不再上气泡（SELF_TALK_MAX），气泡只留短句——她还得露个脸。
+// ---------------------------------------------------------------------------
+
+test('旁白：作为一行进过程清单，长旁白不上鲸鱼娘气泡、短句照旧念', async (t) => {
+  const p = await bootPlugin()
+  t.after(p.stop)
+  await bindSession(p, 'sess-say')
+  const feed = p.handlers.get('session/event')
+  const session = { id: 'sess-say', header: { id: 'sess-say' } }
+
+  const chat = await openTraceStream(`${p.base}/mini/api/stream?token=${p.token}&thought=1&clientId=chat-say`)
+  await waitFrames(chat, 'state', 1)
+
+  // 长旁白（> 40 字，就是用户截图里那一句）：进清单，不进气泡。
+  const long = '重建出来的状态和会话开始前的 `git diff --stat` 完全一致（9 个文件、555+/18-）。先跑一遍测试确认这一轮本身是绿的，再提交：'
+  feed(session, ev('assistant/message', {
+    turn: 1,
+    step: 1,
+    message: {
+      content: [
+        { type: 'reasoning', text: 'The diff stat now exactly matches.' },
+        ...text(long),
+        { type: 'tool-call', id: 'c1', name: 'bash', arguments: '{}' },
+      ],
+    },
+  }))
+
+  const steps = await waitFrames(chat, 'step', 1)
+  const say = steps[0].rows.find((r) => r.kind === 'say')
+  assert.ok(say, '旁白要作为一行发给聊天模式（不然手机上它只剩气泡那一个去处）')
+  assert.equal(say.text, long, '正文原样发：markdown 记号留着，页面自己渲染')
+  assert.ok(say.id, '行身份要有，页面靠它去重')
+
+  const snap = await snapOf(p)
+  assert.equal(snap.thought, null, '长旁白不上气泡——它已经在过程清单里了')
+  assert.equal(snap.latest, null, '旁白不是回答，回答区一个字都不许有')
+
+  // 短旁白：照旧念（气泡的用处是「她露个脸」，不是把过程重播一遍）。
+  feed(session, ev('assistant/message', {
+    turn: 1,
+    step: 2,
+    message: {
+      content: [
+        ...text('先看一眼目录结构。'),
+        { type: 'tool-call', id: 'c2', name: 'read', arguments: '{}' },
+      ],
+    },
+  }))
+  const after = await snapOf(p)
+  assert.equal(after.thought?.text, '先看一眼目录结构。', '短句照旧进气泡')
+  assert.equal(after.latest, null, '还是不许冒充回答')
+})

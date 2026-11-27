@@ -154,6 +154,35 @@ test('指令里的引号不会把 data-copy 属性提前闭合', () => {
   assert.match(out, /data-copy="他说&quot;你好&quot;就行"/, '引号要转义成实体')
 })
 
+test('聊天模式的过程清单：旁白是过程里的一段正文，不折叠也不套气泡', () => {
+  /**
+   * 2026-11-27 晚，用户报的：手机上那句话（「重建出来的状态和会话开始前的 git diff --stat
+   * 完全一致…」）出现在鲸鱼娘的气泡里，把思考流切成了两截；电脑端同一句话是过程里的
+   * 一段黑色正文。这里钉住手机端也一样：
+   *   · 旁白进 .psteps，是一段 <li class="pstep-say">（没有 summary、点不开）；
+   *   · 正文走 markdown（`代码` 要成样式，不是把反引号贴在脸上）；
+   *   · 顺序和帧的到达顺序一致：思考 → 旁白 → 工具。
+   */
+  const out = renderChatWith({
+    mode: 'chat',
+    running: true,
+    history: [],
+    thinking: {
+      steps: [
+        { kind: 'think', id: 1, text: '先看看仓库结构。', done: true },
+        { kind: 'say', id: 'y1-0', text: '重建出来的状态和 `git diff --stat` 完全一致。' },
+        { kind: 'tool', id: 'c1', name: 'bash', summary: 'npm test', state: 'ok', output: 'ok' },
+      ],
+    },
+  })
+  assert.match(out, /class="pstep-say"/, '旁白要进过程清单，不能只在气泡里')
+  assert.ok(!/<details[^>]*pstep-say/.test(out), '旁白不是可折叠行——它是正文，点不开')
+  assert.match(out, /<code>git diff --stat<\/code>/, '旁白正文走 markdown 渲染')
+  const say = out.indexOf('pstep-say')
+  assert.ok(out.indexOf('psteps') < say, '要排在 .psteps 里，和思考/工具同一列')
+  assert.ok(say < out.indexOf('npm test'), '顺序按帧的到达顺序：旁白在它后面那次工具调用之前')
+})
+
 test('聊天模式：历史被截断时，要在内容最上面说清「这不是全部」', () => {
   // 服务端读历史有上限（会话太大只读日志尾部）。这件事**说到内容里**才算数：
   // 只把条数砍短、不吭声，用户就会以为这个会话只有这么点。
