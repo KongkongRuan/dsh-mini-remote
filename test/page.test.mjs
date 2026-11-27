@@ -989,10 +989,41 @@ test('立绘地址由 artUrl 统一拼，带构建指纹、不带令牌', () => 
   assert.equal(uses.length, 2, `建层和预加载都要用它，实际用了 ${uses.length} 次`)
 })
 
-test('立绘在页面打开时就全部预加载', () => {
-  // 不预加载的话，第一次「正在执行」会先闪一下空白再出图。
+test('设置里有「鲸鱼娘」开关：默认关，只认显式的 on', () => {
+  // 默认关（2026-11-27 用户要求）：没存过（新设备、清过缓存）就是关，
+  // 只有点过「开」、存下 'on' 的那台设备才是开。
+  assert.match(html, /pet:\s*localStorage\.getItem\('dshMiniPet'\) === 'on'/,
+    '默认关——只认显式的 on')
+  // 设置页那一行：两个按钮，开 / 关。
+  const seg = html.slice(html.indexOf('id="segPet"'), html.indexOf('id="segPet"') + 400)
+  assert.match(seg, /data-pet="on"/, '有「开」')
+  assert.match(seg, /data-pet="off"/, '有「关」')
+  // 拨完要存本机，并把当前那一档点亮。
+  assert.match(html, /localStorage\.setItem\('dshMiniPet', state\.pet \? 'on' : 'off'\)/, '存本机')
+  assert.match(html, /\(b\.dataset\.pet === 'on'\) === state\.pet/, '当前档要亮')
+  // 完整模式不画装饰，这一档在那儿点了也看不出变化——灰掉（和「单帧里的流式」同一条口径）。
+  assert.match(html, /b\.disabled = state\.mode === 'full'/, '完整模式里灰掉')
+})
+
+test('鲸鱼娘关掉时，「正在执行」那块不整块消失（否则中止不了任务）', () => {
+  // 关的只是装饰：.work.bare 藏 work-top（立绘 + 气泡）和 work-progress，
+  // work-foot（计时 + 停止）留着——跑着的活儿还得能从手机上停。
+  const w = buildWhale({ pet: false })
+  w.state.running = true
+  w.paintWork()
+  assert.equal(w.els.work.hidden, false, '跑着的时候那块还在，不然没地方按停止')
+  w.state.running = false
+  w.paintWork()
+  assert.equal(w.els.work.hidden, true, '闲下来照旧整块收起来')
+})
+
+test('立绘只在开着鲸鱼娘时预加载（默认关，不白拉九张图）', () => {
+  // 不预加载的话，第一次「正在执行」会先闪一下空白。
   assert.match(html, /function preloadPoses/, '要有预加载')
-  assert.match(html, /preloadPoses\(\);\s*\n\s*connect\(\);/, '启动时要先预加载再连')
+  // 2026-11-27：加了「鲸鱼娘」开关，**默认关**。关着就别在首屏把九张图（约 0.8 MB）
+  // 拉下来；打开的那一刻由 segPet 的点击补上，第一次出现照样不闪。
+  assert.match(html, /if \(state\.pet\) preloadPoses\(\);\s*\n\s*connect\(\);/, '开着才预加载，再连')
+  assert.match(html, /if \(work\.layers\.length\) return;/, '建过就不再建：开关来回点不该叠层')
 })
 
 /**
@@ -1128,7 +1159,7 @@ function htmlToText(htmlStr) {
     .replace(/&amp;/g, '&')
 }
 
-function buildWhale({ token = 'tok', reduced = false, apiRejects = false, apiError = '' } = {}) {
+function buildWhale({ token = 'tok', reduced = false, apiRejects = false, apiError = '', pet = true } = {}) {
   const els = {
     work: makeEl('work'),
     workStage: makeEl('workStage'),
@@ -1157,7 +1188,9 @@ function buildWhale({ token = 'tok', reduced = false, apiRejects = false, apiErr
   const calls = []
   let clock = 0
   const sandbox = {
-    state: { token },
+    // **pet 默认给 true**：下面这一组测的是「开着鲸鱼娘」时她怎么动，不是开关本身
+    // （默认关的口径另有一条静态断言钉着）。真页面上这个值来自 localStorage。
+    state: { token, pet },
     inputEl: els.input,
     document: {
       getElementById: (id) => els[id] ?? null,
@@ -4486,7 +4519,9 @@ function trajHarness(chat) {
   assert.ok(a > 0, `在 page.html 里找不到锚点「${START_AT}」`)
   assert.ok(b > a, `在 page.html 里找不到锚点「${END_AT}」`)
 
-  const state = { mode: 'full', boundSessionId: 's1', trajectory: [], trajectoryLoading: false }
+  // pet: true —— 这个沙箱验的是「完整模式 vs 别的模式」；鲸鱼娘开关默认关那条另有测试。
+  // 不给它 true 的话，「聊天模式不该挂 bare」会因为开关默认关而误报。
+  const state = { mode: 'full', boundSessionId: 's1', trajectory: [], trajectoryLoading: false, pet: true }
   const replyEl = {
     innerHTML: '',
     listeners: {},
@@ -5292,6 +5327,14 @@ test('完整模式：鲸鱼娘、气泡、光流条收起来；页面上没有�
   h.state.mode = 'chat'
   h.render()
   assert.ok(!/\bbare\b/.test(String(h.getEl('work').className)), '别的模式照旧，一个字不动')
+  // 2026-11-27：鲸鱼娘开关（默认关）和「完整」模式共用同一条 CSS——
+  // 关掉的人也不该看见立绘、气泡、光流条，但计时和「停止」得留着。
+  h.state.pet = false
+  h.render()
+  assert.match(String(h.getEl('work').className), /\bbare\b/, '关掉鲸鱼娘：装饰收起来')
+  h.state.pet = true
+  h.render()
+  assert.ok(!/\bbare\b/.test(String(h.getEl('work').className)), '打开就照旧露出来')
   assert.match(html, /\.work\.bare \.work-top[^}]*display:\s*none/,
     'CSS 里要真有这条：bare 下 work-top（立绘+气泡）不画')
   assert.match(html, /\.work\.bare \.work-progress[^}]*display:\s*none/,

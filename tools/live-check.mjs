@@ -345,6 +345,12 @@ check('太短的内容不往外露（旁白挡在门外）', /const STREAM_MIN_C
 // 流式一开始吐字，鲸鱼娘要让位（用户 2026-09-22 实机提的：回答在底下长出来了，
 // 底下还挂着它，重复又抢注意力）
 check('流式吐字时鲸鱼娘让位', /var busy = \(state\.running \|\| queued > 0\) && !state\.live/.test(html))
+// 鲸鱼娘开关（2026-11-27 用户要求）：默认**关**——只认显式的 'on'，没存过就是关。
+// 关掉时和「完整」模式共用 .work.bare（装饰收掉、计时和「停止」留着），
+// 关着也不预加载那九张立绘，打开的那一刻才建层。
+check('鲸鱼娘默认关，开关存本机',
+  /pet:\s*localStorage\.getItem\('dshMiniPet'\) === 'on'/.test(html)
+  && html.includes('id="segPet"') && /if \(state\.pet\) preloadPoses\(\);/.test(html))
 // 指令气泡和回答之间的间距要比同一条消息内部大（原来 10px 太挤）
 {
   const css = html.slice(html.indexOf('.bubble {'), html.indexOf('.bubble.user'))

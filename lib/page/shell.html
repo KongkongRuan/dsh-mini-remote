@@ -224,6 +224,21 @@ __PAGE_CSS__</style>
       </div>
     </div>
 
+    <!-- 鲸鱼娘（2026-11-27 用户要求加开关，**默认关**）。
+         她只在「正在执行」那块露头，是纯装饰（轮播跟 Agent 在干什么无关，见 app.js 的 POSES）。
+         关掉时那块只剩「已 N 秒 / 停止」：和「完整」模式共用 .work.bare，装饰收掉、
+         中止任务的路留着。状态存本机，没存过就是关。 -->
+    <div class="row">
+      <div>
+        <div class="label">鲸鱼娘</div>
+        <div class="hint">执行时显示鲸鱼娘和她的气泡；关掉只剩计时和停止</div>
+      </div>
+      <div class="seg" id="segPet">
+        <button data-pet="on">开</button>
+        <button data-pet="off">关</button>
+      </div>
+    </div>
+
     <!-- 权限档位。整块由脚本填：这台电脑有哪些档位是**运行时读**的，一个都不写死。
          服务拿不到时整块不显示——它是附加能力，缺了遥控本身照常。 -->
     <div id="permBlock" hidden>
