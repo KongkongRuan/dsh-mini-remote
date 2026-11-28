@@ -1910,8 +1910,11 @@ test('答题接缝：手机页收到的那条 question 帧一个字都没变', a
   }
   const frame = buffer.split('\n').find((line) => line.startsWith('data: ') && line.includes('选哪个方案'))
   assert.ok(frame, '还要有这条数据行')
-  assert.deepEqual(JSON.parse(frame.slice('data: '.length)), { id: 'q1', agentId: 'sess-1', questions },
-    '飞书那条路接上之后，手机页收到的这一帧必须逐字不变')
+  // 2026-11-28 起这条帧多了 `sessionTitle`：题可能来自**别的会话**（不再让路），
+  // 卡片头上要写清是谁在问。其余字段一个字没动。
+  assert.deepEqual(JSON.parse(frame.slice('data: '.length)),
+    { id: 'q1', agentId: 'sess-1', sessionTitle: '', questions },
+    '手机页要的几样（题号、会话、题目）一个都不能少，也不许改名')
   await reader.cancel()
   miniControl.answerQuestion('q1', { answers: [] })
 })
@@ -1977,8 +1980,8 @@ test('别处答掉了：手机页会收到一条 question-done，并知道是飞
 
   const buffer = await stream.read('event: question-done')
   assert.ok(buffer.includes('event: question-done'), '要有这条状态帧，手机页才知道该把卡片收起来')
-  assert.deepEqual(frameOf(buffer, 'question-done'), { id: 'q1', source: 'feishu' },
-    '谁答的由插件如实说——手机页靠它写「已在飞书答过」，猜不得')
+  assert.deepEqual(frameOf(buffer, 'question-done'), { id: 'q1', source: 'feishu', agentId: 'sess-1' },
+    '谁答的由插件如实说——手机页靠它写「已在飞书答过」，猜不得；agentId 是让「你选了 X」落回它自己的会话')
   await stream.close()
 })
 
@@ -2015,7 +2018,7 @@ test('手机自己答的：帧里说的是 phone，不是 feishu', async (t) => 
   assert.equal(res.status, 200)
   await pending
   const buffer = await stream.read('event: question-done')
-  assert.deepEqual(frameOf(buffer, 'question-done'), { id: 'q1', source: 'phone' },
+  assert.deepEqual(frameOf(buffer, 'question-done'), { id: 'q1', source: 'phone', agentId: 'sess-1' },
     '手机自己答的要说 phone——不然手机页会对自己说「已在飞书答过」')
   await stream.close()
 })

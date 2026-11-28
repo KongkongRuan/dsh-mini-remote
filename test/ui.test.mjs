@@ -190,8 +190,14 @@ test('别处答掉了：两条监听只换状态，不碰位置/内容', () => {
   const aFrom = html.indexOf("es.addEventListener('approval-done'")
   assert.ok(aFrom > 0, '页面里找不到 approval-done 这条监听')
   const a = html.slice(aFrom, html.indexOf('});', aFrom))
-  assert.match(a, /classList\.remove\('on'\)/, '审批卡要收起来就得拿掉 on')
+  // 2026-11-28：审批卡也成了队列，收卡统一走 approveClose()——它在同一个地方拿掉 on、
+  // 并把队里下一条顶上来（和 closeAskCard 同一个道理：监听里自己动样式就会留半个状态）。
+  assert.match(a, /approveClose\(\)/, '审批卡要收起来就得走 approveClose()')
   assert.ok(!/\.style\b/.test(a), '审批卡不许就地改样式')
+  const acFrom = html.indexOf('function approveClose')
+  assert.ok(acFrom > 0, '页面里找不到 approveClose')
+  const ac = html.slice(acFrom, html.indexOf('function approveDrop', acFrom))
+  assert.match(ac, /classList\.remove\('on'\)/, '审批卡要收起来就得拿掉 on')
 
   // closeAskCard 自己必须三件事一起做（少一件就会挂半个状态在屏幕上）。
   const cFrom = html.indexOf('function closeAskCard')

@@ -3601,10 +3601,11 @@ function snapshotHarness() {
 
   const state = { boundSessionId: null }
   const permCalls = []
+  const repaints = []
   // eslint-disable-next-line no-new-func
   const apply = new Function(
     'state', '$', 'setRunning', 'paintCmdMenu', 'paintNavCurrent', 'render',
-    'loadPermissions', 'saCache', 'saCacheSession', 'saCacheAt',
+    'loadPermissions', 'saCache', 'saCacheSession', 'saCacheAt', 'askRepaintOf',
     `${html.slice(a, b)}\nreturn applySnapshot;`,
   )(
     state,
@@ -3612,8 +3613,11 @@ function snapshotHarness() {
     () => {}, () => {}, () => {}, () => {},
     (id) => permCalls.push(id),
     null, null, 0,
+    // 换会话要重写答题卡头上那句话（2026-11-28，见 askRender）。这里只数次数——
+    // 卡头怎么写由 ask-card 那份测试钉着。
+    () => repaints.push(state.boundSessionId),
   )
-  return { apply, state, permCalls }
+  return { apply, state, permCalls, repaints }
 }
 
 test('换会话要重读权限档位（它是每个会话各一份的）', () => {
@@ -3628,6 +3632,9 @@ test('换会话要重读权限档位（它是每个会话各一份的）', () =>
   h.apply({ boundSessionId: 's2' })   // 用户在导航栏切到了会话二
   assert.deepEqual(h.permCalls, ['s2'],
     '换了会话必须重读——不读显示的就是会话一那一档（用户的真机反馈）')
+  assert.deepEqual(h.repaints, ['s1', 's2'],
+    '每次绑定会话变化都要重写答题卡头上那句「谁在问」（第一次从"没有"到 s1 也算）——'
+    + '不重写的话，「切过去」会留在原地，而用户已经站在那个会话里了')
 })
 
 // ---------------------------------------------------------------------------

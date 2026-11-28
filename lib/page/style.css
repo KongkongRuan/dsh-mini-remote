@@ -1684,7 +1684,15 @@
   #approveCard { position: fixed; inset: 0; z-index: 310; background: var(--bg);
     display: none; flex-direction: column; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); overflow-y: auto; }
   #approveCard.on { display: flex; }
-  #approveCard .ahead { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+  /* 审批卡的卡头（2026-11-28）：左边写「谁要动手」，右边一颗「稍后」。
+     为什么要「稍后」：这张卡是**整屏一层**（inset:0），而它现在也会从"不是手机当前
+     在看的"那个会话推过来——不给一条不出手的退路，用户就被一张别人会话的审批卡困在
+     屏幕前（拒绝/同意都是真决定，不该为了看一眼而被逼着按）。 */
+  #approveCard .ahead { font-size: 13px; color: var(--muted); margin-bottom: 12px;
+    display: flex; align-items: center; gap: 6px; }
+  #approveCard .ahead .qlater { margin-left: auto; flex: none; padding: 2px 10px; font-size: 12px;
+    border-radius: 999px; border: 1px solid var(--line); background: var(--panel-2);
+    color: inherit; font-family: inherit; }
   #approveCard .atool { font-size: 18px; line-height: 1.6; margin-bottom: 10px; }
   #approveCard .areason { font-size: 14px; line-height: 1.65; color: var(--muted); margin-bottom: 16px; white-space: pre-wrap; }
   /* 命令原文：等宽感靠 1px 细线左边界和缩进，不引新字体；长命令照原样折行。 */
@@ -1720,6 +1728,19 @@
   /* 题目正文那一块自己滚，下面的按钮永远露着。 */
   #askCard .qbody { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
   #askCard .qhead { font-size: 12.5px; color: var(--muted); margin-bottom: 7px; }
+  /* 题来自**别的会话**时头上那颗「切过去」（2026-11-28）：做成小胶囊，别跟下面那排
+     答题按钮抢——那一排是动作，这一颗是导航，两件事不该长得一样。
+     **用中性色**（和 .qfoot 那排副按钮同一套），不占强调色：这一屏已经有一个主按钮
+     `#askNext` 了，规则是"一屏最多两处"（见 test/ui.test.mjs 那份清单）。
+     审批卡的卡头共用同一颗（它也是"题来自别的会话"这同一件事）。
+     `line-height` 压一下，免得把那一行标题撑高。 */
+  #askCard .qhead .qgo,
+  #approveCard .ahead .qgo { margin-left: 6px; padding: 1px 9px; font-size: 12px; line-height: 1.6;
+    border-radius: 999px; border: 1px solid var(--line); background: var(--panel-2);
+    color: inherit; font-family: inherit; }
+  /* 「还有 N 道在等」：队列是隐形的，不写出来用户不知道后面还排着。 */
+  #askCard .qhead .qmore,
+  #approveCard .ahead .qmore { margin-left: 6px; color: var(--muted); }
   #askCard .qtext { font-size: 17px; line-height: 1.5; margin-bottom: 8px; }
   #askCard .qdetail { font-size: 13px; line-height: 1.55; color: var(--muted); margin-bottom: 10px; white-space: pre-wrap; }
   #askCard .opt { display: block; width: 100%; text-align: left; margin: 0 0 7px; padding: 11px 13px;
