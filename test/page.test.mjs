@@ -1932,13 +1932,13 @@ test('聊天模式下，正在写的那段跟在最后一条消息后面', () =>
 /**
  * 渲染一次，返回渲染后的滚动位置。用来盯「会不会把用户拽回底部」。
  *
- * 假 mainEl 的 scrollHeight 不会自己变，所以渲染后 scrollTop 只有三种结果：
+ * 假 mainEl 的 scrollHeight 不会自己变，所以渲染后 scrollTop 只有两种结果：
  *   1. 被设成 scrollHeight —— 跟到底了；
- *   2. **被对齐到回答开头**（2026-09-24 之后新增的第三条路，见 renderChat 的 scrollChat）；
- *   3. 原样不动 —— 没打扰用户。
+ *   2. 原样不动 —— 没打扰用户。
  *
- * 假 replyEl 必须能 `querySelector('.live')`，否则第 2 条会静默退化成空操作，
- * 测试就测了个寂寞。`.live` 的开头固定在 800，容器顶固定在 0。
+ * 2026-11-28 之前还有第三条（「被对齐到回答开头」），用户改口后撤掉了，见 scrollChat。
+ * 假 replyEl 仍然给 `querySelector('.live')`：留着它，将来这条口径再翻回来时
+ * 这组假元素直接能用（见 pinToTop 的注释）。
  */
 function scrollAfterRender(state, { scrollTop, scrollHeight, clientHeight }) {
   const replyEl = {
@@ -1980,16 +1980,14 @@ test('用户翻上去看历史时，不把他拽回底部', () => {
   const up = scrollAfterRender(state, { scrollTop: 100, scrollHeight: 2000, clientHeight: 0 })
   assert.equal(up, 100, '用户翻上去看历史，不该被拽回底部')
 
-  // 本来就在底部：**不再跟着滚到末尾，改成把回答的开头对齐到顶部**
-  // （2026-09-24 用户提的「回答出现时页面应该停留在回答的开头而非末尾」）。
-  // 开头在 800，容器顶在 0：1990 + 800 - 12 = 2778。
+  // 本来就在底部：跟着到底。
+  // **2026-11-28 起不再把回答开头对齐到顶部**（原来这里断言的是 1990 + 800 - 12 = 2778）。
   const bottom = scrollAfterRender(state, { scrollTop: 1990, scrollHeight: 2000, clientHeight: 0 })
-  assert.equal(bottom, 2778, '本来就在底部，就把回答开头拉上来（不是滚到末尾）')
+  assert.equal(bottom, 2000, '本来就在底部，就跟着新内容走到底，别把人弹回开头')
 
-  // 差几个像素（手指惯性、地址栏收起）也算在底部——48px 容差现在管的是
-  // 「要不要动他」这件事：1960 + 800 - 12 = 2748。
+  // 差几个像素（手指惯性、地址栏收起）也算在底部——48px 容差管的是「要不要动他」。
   const near = scrollAfterRender(state, { scrollTop: 1960, scrollHeight: 2000, clientHeight: 0 })
-  assert.equal(near, 2748, '差一点点也算在底部，同样把开头拉上来')
+  assert.equal(near, 2000, '差一点点也算在底部，同样跟到底')
 })
 
 test('按发送时，不管翻到哪儿都立刻回到底部', () => {
@@ -2406,6 +2404,38 @@ test('正文增量只重画流式那一块，不重拼整串历史', () => {
     { mode: 'chat', frames: [{ sessionId: 's1', kind: 'text', delta: '流' }] },
   )
   assert.equal(r.paints, 1, '正文增量要交给 paintLive 只画那一块')
+})
+
+test('流式每一帧：在底部就跟着走，翻上去就不跟', () => {
+  // 2026-11-28 用户报的：「一旦 AI 开始响应，就得往下滑才能看到最新的内容」。
+  // 一半的原因就在这里：paintLive 是每秒好几帧的快路，原来它只换字、一次都不滚，
+  // 新字一冒出来就落在屏幕外面，看着像卡住了。
+  const a = html.indexOf('function paintLive')
+  const b = html.indexOf('function paintTokens')
+  assert.ok(a > 0 && b > a, '找不到 paintLive / paintTokens 这两个锚点')
+  const build = (state, replyEl, mainEl, atBottom) => new Function(
+    'state', 'replyEl', 'mainEl', 'atBottom', 'mdToHtml', 'render',
+    `${html.slice(a, b)}\nreturn paintLive;`,
+  )(state, replyEl, mainEl, atBottom, (t) => '<p>' + t + '</p>',
+    () => { throw new Error('流式这一帧不该整串重画') })
+
+  // ① 在底部（1990/2000，差 10px 在容差内）：跟着新内容到底
+  const md1 = { innerHTML: '' }
+  const main1 = { scrollTop: 1990, scrollHeight: 2000 }
+  const askedAt = []
+  build({ live: '新写的一句' }, { querySelector: (s) => (s === '.live .md' ? md1 : null) }, main1,
+    () => { askedAt.push(md1.innerHTML); return main1.scrollHeight - main1.scrollTop < 48 })()
+  assert.equal(md1.innerHTML, '<p>新写的一句</p>', '字照旧要换上去')
+  assert.equal(main1.scrollTop, 2000, '在底部就跟着走')
+  assert.equal(askedAt[0], '', '「在不在底部」必须在改 innerHTML 之前问——改完永远是「在」')
+
+  // ② 他翻上去看历史了（100/2000）：字照换，位置一个像素都不动
+  const md2 = { innerHTML: '' }
+  const main2 = { scrollTop: 100, scrollHeight: 2000 }
+  build({ live: '新写的一句' }, { querySelector: (s) => (s === '.live .md' ? md2 : null) }, main2,
+    () => main2.scrollHeight - main2.scrollTop < 48)()
+  assert.equal(md2.innerHTML, '<p>新写的一句</p>', '字照旧要换')
+  assert.equal(main2.scrollTop, 100, '一秒好几帧，不能把人从读到一半的地方拽回来')
 })
 
 test('SSE 推来的回复落定时，流式影子要让位（否则同一段话会显示两遍）', () => {
@@ -2838,13 +2868,15 @@ test('回答对象没有 timestamp 时也不跳——没有判据就不动', () 
 })
 
 /**
- * 聊天模式的滚动：**回答的开头才是要读的地方，不是末尾。**
+ * 聊天模式的滚动：**在底部就跟着最新内容走，翻上去看历史就不动他。**
  *
- * 用户 2026-09-24 提的：「聊天模式下，回答出现时，页面也应该停留在回答的开头
- * 而非末尾，这样用户不用往上滚到开头」。
+ * 2026-11-28 用户改口：原来（09-24「回答出现时停在回答开头」、10-22「落定停在正文
+ * 第一行」）那套对齐开头全撤了——他实机反馈「一旦 AI 开始响应就自动弹到上面去，
+ * 得往下滑才能看到最新的对话响应」。
  *
- * 这推翻了原先那条「聊天模式照旧黏底（用户只说了单帧）」——当时他只说了单帧，
- * 所以聊天模式特意保持原样。现在口径变了，测试跟着变，不是测试写错了。
+ * 所以现在只剩两条路：`stick` 为真 → 贴底；为假 → 一个像素都不碰。
+ * `liveTop` / `saidTop` 这两个参数留着没删：它们是「回答在哪」的位置，将来这条口径
+ * 再翻回来时这组假元素直接能用（见 pinToTop 的注释）。
  */
 function chatRunner({
   latest, live, history = [], scrollTop = 0, scrollHeight = 2000,
@@ -2883,24 +2915,21 @@ function chatRunner({
   return { render: build(state, replyEl, mainEl, () => '12:00'), state, mainEl, replyEl }
 }
 
-test('短回答落定、人停在上一轮回答附近：直接贴底', () => {
-  // 2026-10-22 用户报的特定情况：生成完了没跳到这次回答开头，而是停在上一轮开头。
-  // 原因是回答太短，顶不到上方；用户口径是这种时候直接贴底。
+test('落定时人就在底部：跟着到底，不跳到回答开头', () => {
+  // 2026-11-28 的口径。1990/2000 差 10px，在 48px 容差内 = 他在底部。
   const r = chatRunner({
-    latest: { text: '短答案。', timestamp: 9 },
-    history: [
-      { role: 'user', text: '问一句', timestamp: 8 },
-      { role: 'assistant', text: '短答案。', timestamp: 9 },
-    ],
-    scrollTop: 600, scrollHeight: 2000, clientHeight: 722, saidTop: 900,
+    latest: { text: '答案', timestamp: 7 },
+    history: [{ role: 'assistant', text: '答案', timestamp: 7 }],
+    scrollTop: 1990, scrollHeight: 2000, saidTop: 600,
   })
   r.render()
-  assert.equal(r.mainEl.scrollTop, 2000, '短回答顶不上去，就直接贴底，别停在上一轮')
+  assert.equal(r.mainEl.scrollTop, 2000,
+    '在底部就贴底：回答的开头(600)不再被拉上来（原来这里断言的是 2578）')
 })
 
-test('顶得上去时仍对齐回答第一行，不贴底', () => {
-  // 同样是「落定时人不在底部、但离底部不到一屏」，这次回答第一行够得着：
-  // 该对齐回答开头，不能一股脑贴底。690 - 12 = 678 是目标位置；max 是 1278。
+test('落定时人离底部不到一屏但不在底部：也不动他', () => {
+  // 原来这种位置会被当成「跟着看」拉去回答开头（2026-10-22 那条）。现在不再动：
+  // 要么在底部（跟着走），要么不在（别碰）。600 / 2000 / 722 → 离底部 678px。
   const r = chatRunner({
     latest: { text: '一段回答。', timestamp: 9 },
     history: [
@@ -2910,10 +2939,10 @@ test('顶得上去时仍对齐回答第一行，不贴底', () => {
     scrollTop: 600, scrollHeight: 2000, clientHeight: 722, saidTop: 690,
   })
   r.render()
-  assert.equal(r.mainEl.scrollTop, 1278, '够得着就停在回答第一行（被最大滚动距离卡住也在位）')
+  assert.equal(r.mainEl.scrollTop, 600, '不在底部就不该动他的位置')
 })
 
-test('离底部还远、在翻旧记录时：短回答落定也不拽人', () => {
+test('离底部还远、在翻旧记录时：落定也不拽人', () => {
   const r = chatRunner({
     latest: { text: '短答案。', timestamp: 9 },
     history: [
@@ -2928,7 +2957,7 @@ test('离底部还远、在翻旧记录时：短回答落定也不拽人', () =>
 
 test('聊天模式：没有新回答时照旧黏底（重排、切会话不该乱动）', () => {
   // 没有 latest、没有 live —— 也就是「什么都没新来」，这时候维持原样：
-  // 本来在底部就跟着底部。这条是原来那条测试的本意，保留下来。
+  // 本来在底部就跟着底部。
   const r = chatRunner({
     history: [{ role: 'assistant', text: '一段很长的结论。', timestamp: 100 }],
     scrollTop: 1990, scrollHeight: 2000,
@@ -2937,43 +2966,24 @@ test('聊天模式：没有新回答时照旧黏底（重排、切会话不该�
   assert.equal(r.mainEl.scrollTop, 2000, '没有新回答就照旧黏底')
 })
 
-test('聊天模式：新回答落定时对齐它的开头，不是末尾', () => {
-  // 本来在底部（1990/2000，差 10px 在 48px 容差内），所以该动他。
-  // 回答开头在 600，容器顶在 0 —— 滚过去 600 再留 12px 空隙：1990 + 600 - 12。
-  const r = chatRunner({
-    latest: { text: '答案', timestamp: 7 },
-    history: [{ role: 'assistant', text: '答案', timestamp: 7 }],
-    scrollTop: 1990, scrollHeight: 2000, saidTop: 600,
-  })
-  r.render()
-  assert.equal(r.mainEl.scrollTop, 2578, '回答开头(600)该对齐到视野顶部，留 12px 空隙')
-})
-
-test('聊天模式：回答正在流的时候停在开头，不被反复拽回末尾', () => {
+test('聊天模式：流式期间在底部就跟着往下走，翻上去之后不跟', () => {
   const r = chatRunner({ live: '第一句', scrollTop: 1990, scrollHeight: 2000, liveTop: 800 })
   r.render()
-  assert.equal(r.mainEl.scrollTop, 2778, '流式一开始就把开头(800)对齐到顶部：1990 + 800 - 12')
+  assert.equal(r.mainEl.scrollTop, 2000, '在底部：跟着新内容到底（不再对齐开头）')
 
-  // 关键的一条。流式每秒重画好几次，用户这时候多半正读到一半——
-  // 这里故意把 scrollHeight 设成让 atBottom() 为**真**（340-300=40 < 48 的容差），
-  // 也就是「看起来就在底部」。要是流式期间还走黏底那条路，他刚滚到开头就被拽走。
-  r.mainEl.scrollTop = 300
-  r.state.live = '第一句，又长了一点'
-  r.mainEl.scrollHeight = 340
-  r.render()
-  assert.equal(r.mainEl.scrollTop, 300, '流式期间就算贴着底部，也不该被拽走')
-
-  // 也不能「每次重画都再对齐一次」——那同样会把人从读到一半的地方弹回开头。
+  // 他自己翻上去看历史之后就不再跟——流式一秒好几帧，不能把人拽回来
+  // （2026-09-22 那条）。120/340 差 220px，远在 48px 容差之外。
   r.mainEl.scrollTop = 120
-  r.state.live = '第一句，又长了一点，再长一点'
+  r.mainEl.scrollHeight = 340
+  r.state.live = '第一句，又长了一点'
   r.render()
-  assert.equal(r.mainEl.scrollTop, 120, '同一条回答只对齐一次，别反复弹回开头')
+  assert.equal(r.mainEl.scrollTop, 120, '不在底部就别动他')
 })
 
 test('聊天模式：他自己翻上去看历史时，回答来了也不动他', () => {
   // 用户 2026-09-22 实机提的：「有动画的时候手机端页面运动到上面都会自动调回底部，
-  // 这种机制没必要吧。」把他拽到回答开头，和当初拽回底部是同一类冒犯。
-  // 所以「对齐开头」只在**他本来就在底部跟着看**的时候才做。
+  // 这种机制没必要吧。」把他拽到别处（当年是拽到回答开头，现在是拽到底），
+  // 和当初拽回底部是同一类冒犯。
   const r = chatRunner({ live: '正在写', scrollTop: 100, scrollHeight: 2000, liveTop: 800 })
   r.render()
   assert.equal(r.mainEl.scrollTop, 100, '翻上去看历史时，流式来了也不该动他的位置')
@@ -2989,14 +2999,17 @@ test('聊天模式：他自己翻上去看历史时，回答来了也不动他',
 })
 
 /**
- * 「完整」模式落定时对齐到哪：**最后那条回答的正文第一行**。
+ * 「完整」模式的滚动和聊天是同一套（renderFull 复用 renderChat）。
  *
- * 2026-10-08 原来定的是「这一轮助手侧的第一块（轨迹起点）」，2026-10-22 用户改口：
- * 落定要停在正文第一行，过程组留在上方。这里跑的是 scrollChat 那一段（完整模式怎么
- * 渲染由 trajHarness 那批测试管），所以 replyEl 的树是手搭的、形状照完整模式渲染出来
- * 的样子摆：一轮 = 用户气泡 / 轨迹说明 / 过程组 / 回答，轮与轮之间由用户气泡划开。
+ * 2026-10-08 定的是「落定退回这一轮助手侧的第一块（轨迹起点）」，2026-10-22 改成
+ * 「停在正文第一行」，2026-11-28 又撤成「跟着最新内容走」——所以这里只验最后一件事：
+ * 在底部就贴底、不在底部就不动。replyEl 的树是手搭的，形状照完整模式渲染出来的样子摆：
+ * 一轮 = 用户气泡 / 轨迹说明 / 过程组 / 回答，轮与轮之间由用户气泡划开。
+ *
+ * `classes` / `tops` 仍然摆着：将来这条口径再翻回来（要对齐某一块的开头）时，
+ * 这组假元素直接能用。
  */
-function fullPinRunner({ classes, tops, mode = 'full', scrollTop = 1990, scrollHeight = 2000 }) {
+function fullScrollRunner({ classes, tops, mode = 'full', scrollTop = 1990, scrollHeight = 2000 }) {
   const nodes = classes.map((cls, i) => ({
     cls,
     classList: { contains: (c) => cls.split(' ').indexOf(c) >= 0 },
@@ -3029,44 +3042,43 @@ function fullPinRunner({ classes, tops, mode = 'full', scrollTop = 1990, scrollH
   return { render: build(state, replyEl, mainEl, () => '12:00'), state, mainEl, replyEl }
 }
 
-test('完整模式：回答落定时也停在最后那条回答的开头（不再退回轨迹起点）', () => {
+test('完整模式：回答落定时也贴底，不跳到回答开头', () => {
   // 这一轮的形状：上一轮的回答 → 用户气泡 → 轨迹说明 → 过程组 → 这一轮的回答。
   const classes = ['bubble user', 'said', 'bubble user', 'traj-note', 'traj-group', 'said']
   const tops = [100, 300, 500, 700, 900, 1200]
 
-  const full = fullPinRunner({ classes, tops, mode: 'full' })
+  const full = fullScrollRunner({ classes, tops, mode: 'full' })
   full.render()
-  assert.equal(full.mainEl.scrollTop, 1990 + 1200 - 12,
-    '完整模式也停在最后那条回答的开头：过程组留在上方')
+  assert.equal(full.mainEl.scrollTop, 2000,
+    '完整模式也贴底：过程组和回答都不再被顶到上方（原来断言的是 1990 + 1200 - 12）')
 
-  // 同一份记录换聊天模式：同样停在最后那条回答的开头 —— 两套口径一致。
-  const chat = fullPinRunner({ classes, tops, mode: 'chat' })
+  // 同一份记录换聊天模式：同样贴底 —— 两套口径一致。
+  const chat = fullScrollRunner({ classes, tops, mode: 'chat' })
   chat.render()
-  assert.equal(chat.mainEl.scrollTop, 1990 + 1200 - 12, '聊天模式一个字都不许动')
+  assert.equal(chat.mainEl.scrollTop, 2000, '聊天模式一个字都不许动')
 })
 
-test('完整模式：这一轮没有过程时和聊天一样，不往上一轮跑', () => {
+test('完整模式：这一轮没有过程时也和聊天一样，贴底', () => {
   const classes = ['bubble user', 'said', 'bubble user', 'said']
   const tops = [100, 300, 500, 900]
-  const full = fullPinRunner({ classes, tops, mode: 'full' })
+  const full = fullScrollRunner({ classes, tops, mode: 'full' })
   full.render()
-  assert.equal(full.mainEl.scrollTop, 1990 + 900 - 12,
-    '最后一轮的回答在 900：停在它的开头（和聊天一模一样）')
+  assert.equal(full.mainEl.scrollTop, 2000, '最后一轮的回答在 900 也不影响：在底部就贴底')
 })
 
-test('完整模式：翻上去看历史时不动他；同一条回答只对齐一次', () => {
+test('完整模式：翻上去看历史时不动他', () => {
   const classes = ['bubble user', 'traj-group', 'said']
   const tops = [100, 700, 1200]
-  const away = fullPinRunner({ classes, tops, mode: 'full', scrollTop: 100 })
+  const away = fullScrollRunner({ classes, tops, mode: 'full', scrollTop: 100 })
   away.render()
-  assert.equal(away.mainEl.scrollTop, 100, '他自己翻上去看历史时，落定也不该把他拽到轨迹开头')
+  assert.equal(away.mainEl.scrollTop, 100, '他自己翻上去看历史时，落定不该动他')
 
-  const at = fullPinRunner({ classes, tops, mode: 'full' })
+  const at = fullScrollRunner({ classes, tops, mode: 'full' })
   at.render()
-  assert.equal(at.mainEl.scrollTop, 1990 + 1200 - 12, '在底部跟着看：落定那一下对齐到正文第一行')
+  assert.equal(at.mainEl.scrollTop, 2000, '在底部跟着看：贴底')
   at.mainEl.scrollTop = 120
   at.render()
-  assert.equal(at.mainEl.scrollTop, 120, '同一条回答只对齐一次，别反复弹回开头')
+  assert.equal(at.mainEl.scrollTop, 120, '他滚开之后就不再跟，也不再有「每条只对齐一次」那套')
 })
 
 /**
@@ -3326,16 +3338,17 @@ test('内容只比一屏高一点点时，在底部同样不许露——「在�
   assert.ok(p.noteHidden(), '这个位置离顶确实很近，但它同时就是底部——在底部就不许露')
 })
 
-test('回答落定对齐开头时：那句提示收着，而且不为它多留一段空白', () => {
-  // 两颗牙齿合在一起才成立：pinToTop 只留 12px 空隙，**不给**那颗 sticky 条让高度
-  //（让了会凭空多出一段空白，所以 page.html 里特意没让）。那就必须保证——
-  // 「对齐开头」发生的那一刻（人本来就在底部），提示是收着的（见 chatNoteVisible）。
+test('在底部时那句提示是收着的（「对齐开头」撤了，这条判据照样成立）', () => {
+  // 原来这条盯的是「对齐开头那一刻提示必须收着，否则凭空多一段空白」。2026-11-28
+  // 撤掉了对齐开头（见 scrollChat），但**「在底部就不许露那颗提示」这条判据还在**：
+  // 它露着的时候顶上多一条，人明明在底部却看见「往上滑看更早的」，自相矛盾
+  // （见 chatNoteVisible）。
   const p = chatPager({ history: longHistory(200), saidTop: 600 })
   p.state.latest = { text: '答案', timestamp: 9 }
   p.open()
-  assert.ok(p.noteHidden(), '在底部对齐回答开头时，提示必须是收着的')
-  assert.equal(p.mainEl.scrollTop, 600 - 12,
-    '回答开头(600)对齐到视野顶部、只留 12px 空隙；多留一段就是那颗收着的提示占的')
+  assert.ok(p.noteHidden(), '在底部时提示必须是收着的')
+  assert.equal(p.mainEl.scrollTop, p.mainEl.scrollHeight,
+    '在底部就贴底（不再是「回答开头 600 - 12」那个位置；「对齐开头」2026-11-28 撤了）')
 })
 
 test('往上滑的接线在：main 上挂了 scroll，而不是只有一段没人喊的逻辑', () => {
